@@ -228,7 +228,7 @@ if __name__ == "__main__":
         fixed_global_0 = (global_t_0 * 1200 + cam_min[1]).astype(int)
         fixed_gt.append(fixed_global_0)
         # store the file
-        with open(path + "s{}_cam0_gt.json".format(s), 'w') as outfile:
+        with open(path + "sensor_{}/s{}_cam0_gt.json".format(s, s), 'w') as outfile:
             json.dump(fixed_global_0.tolist(), outfile, indent=4)
 
         # for the second cam
@@ -237,7 +237,7 @@ if __name__ == "__main__":
         fixed_global_1 = (global_t_1 * 1200 + cam_min[1]).astype(int)
         fixed_gt.append(fixed_global_1)
 
-        with open(path + "s{}_cam1_gt.json".format(s), 'w') as outfile:
+        with open(path + "sensor_{}/s{}_cam1_gt.json".format(s, s), 'w') as outfile:
             json.dump(fixed_global_1.tolist(), outfile, indent=4)
 
 
