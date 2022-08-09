@@ -250,8 +250,8 @@ if __name__ == "__main__":
         # take the max of the mins of the gts
         # and min of the max of the gts
         # so that we have a start and end point of the timeline
-        start = max(fix[0], start)
-        end = min(fix[-1], end)
+        start = min(fix[0], start)
+        end = max(fix[-1], end)
 
     # average difference between frames in scale of gt
     avg_diff = np.mean(diff)
