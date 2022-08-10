@@ -149,7 +149,7 @@ def analyze_timestamps(ts, title, fps, n=10, bins=1000, debug=True, verbose=Fals
         if savefigs:
             pass
 
-    return ids * per
+    return ids * per, per
     # return ids * per, ids, (gaps, lost), (per, off)
 
 
@@ -176,6 +176,7 @@ if __name__ == "__main__":
 
     cam_names, radio_freq = ["0", "1"], 1200
     fixed_gt = []
+    pers = 0
 
     # iterate for each sensor
     for s in range(1, 5):
@@ -197,8 +198,6 @@ if __name__ == "__main__":
         cam_min = np.array([min([np.min(cam_ts[name][:, i]) for name in cam_names]) for i in range(2)])
         cam_max = np.array([max([np.max(cam_ts[name][:, i]) for name in cam_names]) for i in range(2)])
 
-        print(cam_min, cam_max)
-
         for name in cam_names:
             # relative value of python_timestamp and global timestamp
             cam_ts[name][:, :2] -= cam_min
@@ -206,9 +205,11 @@ if __name__ == "__main__":
 
             cam_ts[name][:, 1] /= radio_freq
 
-        gs_0 = analyze_timestamps(cam_ts["0"][:, 2], "Camera_0", 14.4, verbose=True, plot=False)
-        gs_1 = analyze_timestamps(cam_ts["1"][:, 2], "Camera_1", 14.4, verbose=True, plot=False)
+        gs_0, per_0 = analyze_timestamps(cam_ts["0"][:, 2], "Camera_0", 14.4, verbose=True, plot=False)
+        gs_1, per_1 = analyze_timestamps(cam_ts["1"][:, 2], "Camera_1", 14.4, verbose=True, plot=False)
 
+        pers += per_0
+        pers += per_1
         # store the regression parameters
         timestamp_parameters = []
         for i, cam_name in enumerate(cam_names):
@@ -240,22 +241,17 @@ if __name__ == "__main__":
         with open(path + "sensor_{}/s{}_cam1_gt.json".format(s, s), 'w') as outfile:
             json.dump(fixed_global_1.tolist(), outfile, indent=4)
 
-
     # start to generate the master timeline
     end = fixed_gt[0][-1]
     start = fixed_gt[0][0]
-    diff = []
     for fix in fixed_gt:
-        diff.append(np.mean(np.diff(fix)))
         # take the max of the mins of the gts
         # and min of the max of the gts
         # so that we have a start and end point of the timeline
         start = min(fix[0], start)
         end = max(fix[-1], end)
 
-    # average difference between frames in scale of gt
-    avg_diff = np.mean(diff)
-
+    avg_diff = int(pers / 8 * 1200)
     master_gt = np.arange(start, end, avg_diff, dtype=int)
 
     with open(path + "master_ss1_gt.json", 'w') as outfile:
