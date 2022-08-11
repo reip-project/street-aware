@@ -26,6 +26,8 @@ class Reader:
             self.reader = cv2.VideoCapture(gstream, cv2.CAP_GSTREAMER)
             _, self.left_frame = self.reader.read()
             _, self.right_frame = self.reader.read()
+            self.left_frame = self.left_frame[:1440, 16: 2576, :]
+            self.right_frame = self.right_frame[:1440, 16: 2576, :]
 
         except Exception as e:
             print(e)
@@ -45,6 +47,7 @@ class Reader:
         else:
             self.left_frame = self.right_frame
             ret, self.right_frame = self.reader.read()
+            self.right_frame = self.right_frame[:1440, 16:2576, :]
             self.left_ind = self.right_ind
             self.right_ind += 1
 
@@ -74,9 +77,17 @@ if __name__ == "__main__":
     camera_readers = []                                            # List to store objects for each camera
     master_gt = []                                                 # Master global timeline
     frame_rate = int(input("Enter frame-rate:"))                   # Frame Rate for rendering
+
+    # the original 2 * HD resolution of the frame
+    TwoHD = 2560
+    # the resolution that we want
+    width, height = 640, 390
+    # calculate how many times that we need to resize it by half
+    half_ops = TwoHD / width / 2
+
     output_video = cv2.VideoWriter('mosaic.avi',
                                    cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'),  # Writer object
-                                   frame_rate, (7776, 5832))
+                                   frame_rate, (width * 3, height * 3))
 
     # Creating objects for each camera global timeline per session
     for i in range(1, 5):
@@ -105,18 +116,22 @@ if __name__ == "__main__":
             if np.abs(time - left_tstamp) < np.abs(time - right_tstamp):
                 # print("Reading good frame at time stamp is:{} for cam {}".format(timestamp, cam))
                 if np.abs(time - left_tstamp < threshold):
-                    output_array.append(left_fr)
+                    for i in range(half_ops):
+                        left_fr = left_fr[0::2, 0::2, :]
+                        output_array.append(left_fr)
                 else:
-                    output_array.append(np.zeros([1944, 2592, 3], dtype=np.uint8))
+                    output_array.append(np.zeros([height, width, 3], dtype=np.uint8))
             else:
                 if np.abs(time - right_tstamp < threshold):
-                    output_array.append(right_fr)
-                    cam.read_frame()
+                    for i in range(half_ops):
+                        right_fr = right_fr[0::2, 0::2, :]
+                        output_array.append(right_fr)
+                        cam.read_frame()
                 else:
-                    output_array.append(np.zeros([1944, 2592, 3], dtype=np.uint8))
+                    output_array.append(np.zeros([height, width, 3], dtype=np.uint8))
         # print(output_array[0].shape, output_array[1].shape)
         # exit(0)
-        white_frame = np.zeros([1944, 2592, 3], dtype=np.uint8)
+        white_frame = np.zeros([height, width, 3], dtype=np.uint8)
         white_frame.fill(255)
         row1 = np.concatenate((white_frame, output_array[0], output_array[1]), axis=1)
         # print(row1.shape)
