@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import glob
 from natsort import natsorted
-import time
 
 
 class Reader:
@@ -21,7 +20,9 @@ class Reader:
         self.camera_id = os.path.split(self.json_path)[-1][6]
 
         try:
-            gstream = "filesrc location=%s ! image/jpeg,width=2592,height=1944,framerate=15/1 ! jpegdec ! videoconvert ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! queue ! appsink" % video_path
+            gstream = "filesrc location=%s ! image/jpeg,width=2592,height=1944,framerate=15/1 ! jpegdec ! " \
+                      "videoconvert ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! queue ! " \
+                      "appsink" % video_path
             self.reader = cv2.VideoCapture(gstream, cv2.CAP_GSTREAMER)
             _, self.left_frame = self.reader.read()
             _, self.right_frame = self.reader.read()
@@ -32,38 +33,24 @@ class Reader:
     def get_json(self):
 
         return self.timeline[self.left_ind], self.timeline[self.right_ind]
-    # def read_json(self):
-    #     # Return timestamp from json
-    #     left_tstamp = self.timeline[self.left_ind]
-    #     right_tstamp = self.timeline[self.right_ind]
-    #     self.left_ind += 1
-    #     self.right_ind += 1
-    #     return left_tstamp, right_tstamp
 
     def get_frame(self):
+
         return self.left_frame, self.right_frame
 
     def read_frame(self):
         # Reading video for camera frame by frame
         if not self.reader.isOpened():
             print("Cam {} down".format(self.camera_id))
-            # return np.zeros([1944, 2592, 3], dtype=np.uint8)
         else:
             self.left_frame = self.right_frame
             ret, self.right_frame = self.reader.read()
             self.left_ind = self.right_ind
             self.right_ind += 1
-            # ret_left, right_frame = self.reader.read()
-            # ret_right, left_frame = self.reader.read()
-            # if ret_left and ret_right:
-            #     return left_frame, right_frame
-            # else:
-            #     return np.zeros([1944, 2592, 3], dtype=np.uint8)
 
     def __str__(self):
         # self.timeline = self.read_json()
-        return "Sensor {} camera {}".format(str(self.sensor_id),
-                                                                    str(self.camera_id))
+        return "Sensor {} camera {}".format(str(self.sensor_id), str(self.camera_id))
 #
 # def test(filename):
 #     # print(cv2.getBuildInformation())
@@ -80,12 +67,8 @@ class Reader:
 
 
 if __name__ == "__main__":
-    # test("/home/summer/nec/Aug_1/session_1/sensor_1/video/0.avi")
-    # test("/home/summer/nec/Aug_1/session_1/sensor_1/video/0_1659380678_1.avi")
 
-    # exit(0)
-
-    root = "/home/summer/nec/Aug_2/"                               # Root path to one recording session
+    root = "/home/summer/software/aug1/"                               # Root path to one recording session
     session_id = input("Enter Session ID:")                        # Session ID
     threshold = int(input("Enter threshold for picking frames:"))  # Threshold for picking frames
     camera_readers = []                                            # List to store objects for each camera
@@ -145,5 +128,5 @@ if __name__ == "__main__":
         c += 1
         if c % 50 == 0:
             print("{} frames have been wrote!".format(c))
-        if c == 600:
+        if c == 50:
             exit(0)
