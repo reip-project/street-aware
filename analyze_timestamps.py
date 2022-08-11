@@ -256,6 +256,9 @@ if __name__ == '__main__':
     python_t_1 = gs_1 * timestamp_parameters[2][0] + timestamp_parameters[2][1]
     global_t_1 = python_t_1 * timestamp_parameters[3][0] + timestamp_parameters[3][1]
     # print((global_t_1 * 1200 + cam_min[1]).astype(int) - (cam_ts["1"][:, 1] * 1200 + cam_min[1]).astype(int))
+
+    fixed_global_1 = (global_t_1 * 1200 + cam_min[1]).astype(int)
+
     plt.figure("Test")
     # plt.plot(cam_ts["1"][:, 1], global_t_1, ".b")
     plt.plot(cam_ts["1"][:, 1], ".r")

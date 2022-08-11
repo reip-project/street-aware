@@ -85,13 +85,13 @@ if __name__ == "__main__":
 
     # exit(0)
 
-    root = "/home/summer/nec/Aug_2/"                               # Root path to one recording session
+    root = "/home/summer/nec/Aug_1/"                               # Root path to one recording session
     session_id = input("Enter Session ID:")                        # Session ID
     threshold = int(input("Enter threshold for picking frames:"))  # Threshold for picking frames
     camera_readers = []                                            # List to store objects for each camera
     master_gt = []                                                 # Master global timeline
     frame_rate = int(input("Enter frame-rate:"))                   # Frame Rate for rendering
-    output_video = cv2.VideoWriter('mosaic.avi',
+    output_video = cv2.VideoWriter('mosaic123.avi',
                                    cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'),  # Writer object
                                    frame_rate, (7776, 5832))
 
@@ -135,6 +135,8 @@ if __name__ == "__main__":
         # exit(0)
         white_frame = np.zeros([1944, 2592, 3], dtype=np.uint8)
         white_frame.fill(255)
+        cv2.putText(white_frame, 'Timestamp:'+str(time), (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 3)
+        cv2.putText(white_frame, 'FrameId:'+str(c), ( 100, 200), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 3)
         row1 = np.concatenate((white_frame, output_array[0], output_array[1]), axis=1)
         # print(row1.shape)
         row2 = np.concatenate((output_array[2], output_array[3], output_array[4]), axis=1)
@@ -142,10 +144,9 @@ if __name__ == "__main__":
         row3 = np.concatenate((output_array[5], output_array[6], output_array[7]), axis=1)
         # print(row3.shape)
         stack = np.concatenate((row1, row2, row3), axis=0)
-
         output_video.write(stack)
         c += 1
         if c % 50 == 0:
             print("{} frames have been wrote!".format(c))
-        if c == 600:
+        if c == 10:
             exit(0)
