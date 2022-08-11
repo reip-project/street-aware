@@ -167,12 +167,12 @@ def correlate(x, y, ax=None, xlabel="x", ylabel="y"):
 
 
 if __name__ == "__main__":
-    path = "/home/summer/software/aug1/session_1/"
+    path = "/home/summer/software/aug2/session_1/"
 
     # process the json files and merge them into one big file
-    preprocess(path)
-    sorting(path)
-    print("Done merging")
+    # preprocess(path)
+    # sorting(path)
+    # print("Done merging")
 
     cam_names, radio_freq = ["0", "1"], 1200
     fixed_gt = []
