@@ -21,8 +21,8 @@ def preprocess(path):
             for file in natsorted(glob.glob(json_path + j + '*.json')):
                 with open(file, 'rb') as infile:
                     result.append(json.load(infile))
-
-            with open(path + "sensor_{}/{}_merged.json".format(i, j), "w") as outfile:
+            # first index is sensor number, second index is camera number
+            with open(path + "{}_{}.json".format(i, j), "w") as outfile:
                 json.dump(result, outfile, indent=4)
             result = []
 
@@ -33,12 +33,11 @@ def sorting(path):
 
     # we have 4 sensors starting from 1 to 4
     for i in range(1, 5):
-        merged_json_path = path + "sensor_{}/".format(i)
 
         for j in index:
             merged_list = []
 
-            with open(merged_json_path + "{}_merged.json".format(j), "rb") as infile:
+            with open(path + "{}_{}.json".format(i, j), "rb") as infile:
                 result = json.load(infile)
 
             for dictionary in result:
@@ -47,7 +46,7 @@ def sorting(path):
                         merged_list.append(s[1])
 
             # Overwrite with merged
-            with open(merged_json_path + "{}_merged.json".format(j), 'w') as outfile:
+            with open(path + "{}_{}.json".format(i, j), 'w') as outfile:
                 json.dump(merged_list, outfile, indent=4)
 
 
@@ -170,9 +169,9 @@ if __name__ == "__main__":
     path = "/home/summer/software/aug2/session_1/"
 
     # process the json files and merge them into one big file
-    # preprocess(path)
-    # sorting(path)
-    # print("Done merging")
+    preprocess(path)
+    sorting(path)
+    print("Done merging")
 
     cam_names, radio_freq = ["0", "1"], 1200
     fixed_gt = []
@@ -185,7 +184,7 @@ if __name__ == "__main__":
         cam_ts = {}
 
         for name in cam_names:
-            with open(path + "sensor_{}/{}_merged.json".format(s, name), "r") as infile:
+            with open(path + "{}_{}.json".format(s, name), "r") as infile:
                 # remember to change sessions when you are using different path
                 data = json.load(infile)
 
@@ -229,7 +228,7 @@ if __name__ == "__main__":
         fixed_global_0 = (global_t_0 * 1200 + cam_min[1]).astype(int)
         fixed_gt.append(fixed_global_0)
         # store the file
-        with open(path + "sensor_{}/s{}_cam0_gt.json".format(s, s), 'w') as outfile:
+        with open(path + "{}_0.json".format(s), 'w') as outfile:
             json.dump(fixed_global_0.tolist(), outfile, indent=4)
 
         # for the second cam
@@ -238,7 +237,7 @@ if __name__ == "__main__":
         fixed_global_1 = (global_t_1 * 1200 + cam_min[1]).astype(int)
         fixed_gt.append(fixed_global_1)
 
-        with open(path + "sensor_{}/s{}_cam1_gt.json".format(s, s), 'w') as outfile:
+        with open(path + "{}_1.json".format(s), 'w') as outfile:
             json.dump(fixed_global_1.tolist(), outfile, indent=4)
 
     # start to generate the master timeline
