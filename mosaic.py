@@ -55,7 +55,7 @@ class Reader:
 
 
 if __name__ == "__main__":
-    root = "/home/summer/nec/Aug_1/"                               # Root path to one recording session
+    root = "/home/summer/nec/Aug_2/"                               # Root path to one recording session
     session_id = input("Enter Session ID:")                        # Session ID
     threshold = int(input("Enter threshold for picking frames:"))  # Threshold for picking frames
     camera_readers = []                                            # List to store objects for each camera
@@ -65,7 +65,7 @@ if __name__ == "__main__":
     # the original 2 * HD resolution of the frame
     TwoHD = 2560
     # the resolution that we want
-    width, height = 640, 360
+    width, height = 1280, 720
     # calculate how many times that we need to resize it by half
     half_ops = TwoHD // width // 2
 

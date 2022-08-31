@@ -3,6 +3,18 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+demo/models
+hrnet
+lib
+object-detection
+results/mosaic*
+results/mosiac*
+results/*.zip
+results/occupancy_ss3_s3_left
+results/occupancy_ss3_s4_right
+.idea/
+
+
 # C extensions
 *.so
 
