@@ -8,25 +8,17 @@ import gstreamer.utils as utils
 
 
 class GstVideo:
-    def __init__(self, filename, fps, width, height, bitrate=50000, variable=True, gpu=0, format="RGB", codec="h264"):
-        # self.filename, self.format, self.bitrate = filename, format, bitrate
-        # self.fps, self.width, self.height = fps, width, height
-
+    def __init__(self, filename, width, height, fps, format="RGB", bitrate=10000, variable=True, codec="h265", gpu=0):
         self.context = GstContext()
         self.context.startup()
 
-        if codec == "h264":
-            assert filename[-3:] == "mp4"
-        elif codec == "h265":
-            assert filename[-3:] == "mkv"
-        else:
-            raise ValueError("Unsupported codec %d" % codec)
+        assert codec in ["h264", "h265"], "Unsupported codec %d" % codec
 
         self.caps = "video/x-raw,format=%s,width=%d,height=%d,framerate=%d/1" % (format, width, height, fps)
         self.command = "appsrc emit-signals=True is-live=False caps=%s ! queue ! videoconvert ! " \
-                       "nv%senc preset=hq bitrate=%d rc-mode=%s gop-size=45 cuda-device-id=%d ! %sparse ! matroskamux ! filesink location=%s" \
+                       "nv%senc preset=hq bitrate=%d rc-mode=%s gop-size=45 cuda-device-id=%d ! " \
+                       "%sparse ! matroskamux ! filesink location=%s" \
                        % (self.caps, codec, bitrate, "vbr" if variable else "cbr", gpu, codec, filename)
-        # self.command = "appsrc emit-signals=True is-live=True caps=%s ! videoconvert ! vp8enc ! qtmux ! filesink location=%s" % (self.caps, filename)
         self.pts = 0  # frame timestamp
         self.duration = 10**9 / fps  # frame duration
         self.pipeline, self.appsrc = GstPipeline(self.command), None
@@ -66,16 +58,14 @@ class GstVideo:
             time.sleep(.1)
 
         self.pipeline.shutdown()
-
         self.context.shutdown()
 
 
 if __name__ == '__main__':
     path = './'
 
-    # fps, w, h, n = 15, 2592, 1944, 5
-    fps, w, h, n = 120, 1280, 1024, 1
-    writer = GstVideo(path + "test.mp4", fps, w, h, codec="h264")
+    w, h, fps, n = 1280, 1024, 120, 1
+    writer = GstVideo(path + "test.mp4", w, h, fps, codec="h265")
 
     t0 = time.time()
     for i in range(n*fps):
@@ -100,10 +90,10 @@ if __name__ == '__main__':
             print("read", count)
 
         assert image.shape == (h, w, 3)
-        cv2.imwrite(path + "unpack/frame_%d.jpg" % count, image)
+        # cv2.imwrite(path + "unpack/frame_%d.jpg" % count, image)
 
-        success, image = reader.read()
         count += 1
+        success, image = reader.read()
 
     print(count, n*fps)
     assert count == n*fps
