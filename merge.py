@@ -309,9 +309,9 @@ def plot_hist(ax, all_hists, bitrates, title="", legend=True, max_y=None):
     ax.set_title(title)
     ax.set_xlabel("Error, 8-bit brightness")
     ax.set_ylabel("Counts")
-    ax.set_xlim([-0.5, 150.5])
+    ax.set_xlim([-0.5, 50.5])
     if max_y is not None:
-        ax.set_ylim([1, max_y])
+        ax.set_ylim([100, max_y])
     ax.set_yscale("log")
     if legend:
         ax.legend(loc="upper right")
@@ -357,11 +357,11 @@ def compare_sweeps(sessions):
                 all_sweeps[key] = {"avgs": errs, "hists": hists}
 
                 ax = fig.add_subplot(3, n, i+1)
-                plot_errors(ax, errs, "Absolute", ALL_BITRATES, title=key+"_abs", legend=i%2==1, max_y=10)
+                plot_errors(ax, errs, "Absolute", ALL_BITRATES, title=key+"_abs", legend=i%2==1, max_y=12)
                 ax = fig.add_subplot(3, n, i+1+n)
-                plot_errors(ax, errs, "Relative", ALL_BITRATES, title=key+"_rel", legend=i%2==1, max_y=20)
+                plot_errors(ax, errs, "Relative", ALL_BITRATES, title=key+"_rel", legend=i%2==1, max_y=25)
                 ax = fig.add_subplot(3, n, i+1+2*n)
-                plot_hist(ax, hists, ALL_BITRATES, title=key+"_hist", legend=True, max_y=10**6)
+                plot_hist(ax, hists, ALL_BITRATES, title=key+"_hist", legend=True, max_y=5*10**5)
 
             plt.tight_layout()
             plt.savefig(video + "sweeps.png", dpi=120)
@@ -416,7 +416,7 @@ if __name__ == '__main__':
 
     # User interaction - choose optimal bitrates
     compare_sweeps(sessions)
-    # exit(0)
+    exit(0)
 
     print("\nPress enter to continue with merging...")
     _ = input()
