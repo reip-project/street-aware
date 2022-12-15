@@ -1,10 +1,23 @@
 import cv2
 import time
+import json
 import numpy as np
 
 # https://github.com/jackersson/gstreamer-python
 from gstreamer import Gst, GstApp, GstContext, GstPipeline
 import gstreamer.utils as utils
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """ Special json encoder for numpy types """
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
 
 
 class GstVideo:

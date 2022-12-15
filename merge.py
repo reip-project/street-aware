@@ -1,19 +1,36 @@
 import re
 import os
 import glob
-import json
 import joblib
 import logging
 import subprocess
 import matplotlib.pyplot as plt
 
 logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
+logging.getLogger('matplotlib.ticker').setLevel(logging.ERROR)
 
 from gst_video import *
 
 W, H, FPS = 2592, 1944, 15
 ALL_BITRATES = (100, 65, 40, 25, 15, 10, 6.5, 4, 2.5, 1.5, 1, 0.65, 0.4, 0.25, 0.15, 0.1)  # Mbps
 DEFAULT_BITRATE = 10000  # kbps
+
+
+def browse_sessions(sessions):
+    sessions = sorted(sessions)
+    t0 = time.time()
+
+    for session in sessions:
+        print("\n*******")
+        print("Session", session)
+        print("*******\n")
+        t1 = time.time()
+
+        yield session
+
+        print("\nSession", session, "completed in %.1f seconds" % (time.time() - t1))
+
+    print("\nAll sessions completed in %.1f seconds" % (time.time() - t0))
 
 
 def find_video_segments(path, save=True, verbose=True):
@@ -263,29 +280,47 @@ def bitrate_sweep(filename, width=W, height=H, fps=FPS, max_frames=150, bitrates
     # plt.show()
 
 
-if __name__ == '__main__':
-    num_gpus, n = 2, 3  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
-    data_path = '../data/'
-    # merge_single_video(data_path + "chase_2/sensor_1/video/0_1659466350_%d.avi", data_path + "0_1659466350.mp4", divider=2)
-    # merge_single_video_fast(data_path + "chase_2/sensor_1/video/0_1659466350_%d.avi", data_path + "0_1659466350.mp4", divider=2, save_log=True)
-    # diff(data_path + "chase_2/sensor_1/video/0_1659466350_0.avi", 1, 100, "h264", debug=True)
-    # plt.show()
-    # exit(0)
+def plot_errors(ax, all_errors, err_type, bitrates, title="", legend=True, max_y=None):
+    n, m = 5, 0
+    for j, bitrate in enumerate(reversed(bitrates)):
+        errors = all_errors[str(bitrate)]
+        m = errors.shape[0] - n
+        errors = errors[:, 0] if err_type == "Absolute" else errors[:, 1] * 100
+        ax.plot(np.convolve(errors, np.ones(n), 'valid') / n, "" if j == 0 or ((j - 1) % 5 == 4) else "--",
+                 label=str(bitrate) + " Mbps")
+    ax.plot([0, m], [0, 0], "--k")
+    ax.set_title(title)
+    ax.set_xlabel("Frame ID")
+    if err_type == "Absolute":
+        ax.set_ylabel("Average difference, 8-bit brightness")
+    else:
+        ax.set_ylabel("Relative error, %")
+    ax.set_xlim([-1, m + 1])
+    if max_y is not None:
+        ax.set_ylim([0, max_y])
+    if legend:
+        ax.legend(loc="upper right")
 
-    #####################################################################################
-    # First pass - do a bitrate sweep by reencoding the first chunk of each video segment
-    #####################################################################################
 
-    for session in sorted(glob.glob(data_path + "*/")):
-        # break
-        print("\n*******")
-        print("Session", session)
-        print("*******\n")
+def plot_hist(ax, all_hists, bitrates, title="", legend=True, max_y=None):
+    for j, bitrate in enumerate(reversed(bitrates)):
+        ax.plot(np.arange(256), all_hists[str(bitrate)][100], "" if j == 0 or ((j - 1) % 5 == 4) else "--",
+                 label=str(bitrate) + " Mbps")
+    ax.set_title(title)
+    ax.set_xlabel("Error, 8-bit brightness")
+    ax.set_ylabel("Counts")
+    ax.set_xlim([-0.5, 150.5])
+    if max_y is not None:
+        ax.set_ylim([1, max_y])
+    ax.set_yscale("log")
+    if legend:
+        ax.legend(loc="upper right")
 
+
+def do_sweeps(sessions):
+    for session in browse_sessions(sessions):
         for i in range(4):
-            sensor = session + "sensor_%d/" % (i+1)
-            video = sensor + "video/"
-
+            video = session + "sensor_%d/" % (i+1) + "video/"
             segments = find_video_segments(video, save=True, verbose=True)
 
             for codec in ["h265", "h264"]:
@@ -304,29 +339,42 @@ if __name__ == '__main__':
                 #                                       gpu=int(seg["prefix"][0]) % num_gpus) for seg in segments]
                 # joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="threading")(jobs)
 
-    #####################################################################################
-    # User interaction - choose optimal bitrates
-    #####################################################################################
 
-    exit(0)
-    print("\nPress enter to continue with merging...")
-    _ = input()
+def compare_sweeps(sessions):
+    for session in browse_sessions(sessions):
+        for i in range(4):
+            video = session + "sensor_%d/" % (i+1) + "video/"
+            sweeps = sorted(glob.glob(video + "*_h26?/"))
+            sweeps = sweeps[0::2] + sweeps[1::2]
+            all_sweeps, n = {}, len(sweeps)
+            print(n, "sweeps in", video)
 
-    #####################################################################################
-    # Second pass - re-encode all video segments using optimal bitrate settings
-    #####################################################################################
+            fig = plt.figure(video, (32, 18))
+            for i, sweep in enumerate(sweeps):
+                errs, hists = load_sweep(sweep + "sweep.json")
+                key = sweep[sweep[:-1].rfind('/')+1:-1]
+                print(key)
+                all_sweeps[key] = {"avgs": errs, "hists": hists}
 
-    for session in sorted(glob.glob(data_path + "*/")):
-        print("\n*******")
-        print("Session", session)
-        print("*******\n")
+                ax = fig.add_subplot(3, n, i+1)
+                plot_errors(ax, errs, "Absolute", ALL_BITRATES, title=key+"_abs", legend=i%2==1, max_y=10)
+                ax = fig.add_subplot(3, n, i+1+n)
+                plot_errors(ax, errs, "Relative", ALL_BITRATES, title=key+"_rel", legend=i%2==1, max_y=20)
+                ax = fig.add_subplot(3, n, i+1+2*n)
+                plot_hist(ax, hists, ALL_BITRATES, title=key+"_hist", legend=True, max_y=10**6)
 
+            plt.tight_layout()
+            plt.savefig(video + "sweeps.png", dpi=120)
+
+            json.dump(all_sweeps, open(video + "sweeps.json", "w"), indent=4, cls=NumpyEncoder)
+
+
+def encode_videos(sessions):
+    for session in browse_sessions(sessions):
         renders = json.load(open(session + "meta/video_qualities.json", "r"))
 
         for i in range(4):
-            sensor = session + "sensor_%d/" % (i+1)
-            video = sensor + "video/"
-
+            video = session + "sensor_%d/" % (i+1) + "video/"
             segments = json.load(open(video + "segments.json", "r"))
 
             print("\n%d segments in" % len(segments), video)
@@ -351,3 +399,27 @@ if __name__ == '__main__':
                                                                 bitrate=bitrates[int(seg["prefix"][0])], codec=codec, divider=divider, save_log=codec=="h265",
                                                                 gpu=int(seg["prefix"][0]) % num_gpus, overwrite=False) for seg in segments]
                 joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
+
+
+if __name__ == '__main__':
+    num_gpus, n = 2, 3  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
+    data_path = '../data/'
+    sessions = glob.glob(data_path + "*/")  # glob.glob behaves differently outside of __main__ (i.e. inside functions)
+    # merge_single_video(data_path + "chase_2/sensor_1/video/0_1659466350_%d.avi", data_path + "0_1659466350.mp4", divider=2)
+    # merge_single_video_fast(data_path + "chase_2/sensor_1/video/0_1659466350_%d.avi", data_path + "0_1659466350.mp4", divider=2, save_log=True)
+    # diff(data_path + "chase_2/sensor_1/video/0_1659466350_0.avi", 1, 100, "h264", debug=True)
+    # plt.show()
+    # exit(0)
+
+    # First pass - do a bitrate sweep by reencoding the first chunk of each video segment
+    # do_sweeps(sessions)
+
+    # User interaction - choose optimal bitrates
+    compare_sweeps(sessions)
+    # exit(0)
+
+    print("\nPress enter to continue with merging...")
+    _ = input()
+
+    # Second pass - re-encode all video segments using optimal bitrate settings
+    encode_videos(sessions)
