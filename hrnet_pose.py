@@ -388,12 +388,12 @@ class PoseDetector:
                 pose_preds = get_pose_estimation_prediction(self.pose_model, image_pose, center, scale)
                 if pose_preds.shape[0] > 1:
                     print("!!! Extra poses per box:", pose_preds.shape[0])
-                pred_poses.append(pose_preds[0].astype(np.int))
+                pred_poses.append(pose_preds[0].astype(np.int32))
                 if len(pose_preds) >= 1 and draw:
                     for kpt in pose_preds:
                         draw_pose(kpt, image_bgr)  # draw the poses
 
-        return {"boxes": np.array(pred_boxes).astype(np.int), "poses": pred_poses}
+        return {"boxes": np.array(pred_boxes).astype(np.int32), "poses": pred_poses}
 
 
 if __name__ == '__main__':

@@ -36,7 +36,7 @@ def process_segment(path, segment, detector, max_frames=None):
 
 def main(sessions, use_gpu=0, skip_segments=True):
     print("Using GPU", use_gpu)
-    detector = PoseDetector(gpu_id=use_gpu)
+    detector = PoseDetector(gpu_id=0)  # torch/nn/parallel/data_paralle.py bugs out on line 153 when trying to use second GPU
 
     for session in browse_sessions(sessions):
         for i in range(4):
