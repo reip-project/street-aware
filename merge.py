@@ -10,6 +10,7 @@ logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
 logging.getLogger('matplotlib.ticker').setLevel(logging.ERROR)
 
 from gst_video import *
+from fix_timestamp import *
 
 W, H, FPS = 2592, 1944, 15
 ALL_BITRATES = (100, 65, 40, 25, 15, 10, 6.5, 4, 2.5, 1.5, 1, 0.65, 0.4, 0.25, 0.15, 0.1)  # Mbps
@@ -401,6 +402,113 @@ def encode_videos(sessions):
                 joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
 
+def parse_log(filename):
+    lost = []
+    with open(filename) as f:
+        for line in f:
+            if "Decode error" in line:
+                l = line.find("Frame")
+                r = line.find("Decode")
+                lost.append(int(line[l+6:r-1]))
+    return lost
+
+
+def merge_timestamps(sessions, verbose=True):
+    for session in browse_sessions(sessions):
+        for i in range(4):
+            time = session + "sensor_%d/" % (i+1) + "time/"
+            video = session + "sensor_%d/" % (i+1) + "video/"
+            segments = json.load(open(video + "segments.json", "r"))
+
+            print("\n%d segments in" % len(segments), video)
+            for segment in segments:
+                prefix = segment['prefix']
+                chunks = glob.glob(time + prefix + "*")
+                ids = sorted([int(chunk[chunk.rfind("_")+1:chunk.rfind(".")]) for chunk in chunks])
+
+                good = []
+                for i, ch in enumerate(ids):
+                    if i != ch:
+                        break
+                    good.append(i)
+
+                skip, lost = ids[len(good):], []
+                for i in range(len(good), ids[-1]+1):
+                    if i not in skip:
+                        lost.append(i)
+
+                if verbose:
+                    print("\n", prefix, "with", len(chunks), "chunks:")
+                    print(" all:", ids)
+                    print("good:", good)
+                    print("skip:", skip)
+                    print("lost:", lost)
+
+                all_bufs = []
+                for i in good:
+                    bufs = json.load(open(time + prefix + "_%d.json" % i, "r"))
+                    num_bufs = len([k for k in bufs.keys() if k.startswith("buffer")])
+                    if i < 3 and verbose:
+                        print(num_bufs, "in", i, "-", bufs['file_id'], bufs['bundle_id'], sorted(bufs.keys()))
+
+                    all_bufs.extend([bufs["buffer_%d" % i] for i in range(num_bufs)])
+
+                print(len(all_bufs), "buffers total")
+                lost = parse_log(video + prefix + ".log")
+                print(len(lost), "lost during decoding:", lost)
+
+                for l in reversed(lost):
+                    del all_bufs[l]
+
+                # if os.path.exists(video + prefix + ".json"):
+                #     os.remove(video + prefix + ".json")
+                with open(video + prefix + "_timestamps.json", "w") as f:
+                    json.dump(all_bufs, f, indent=4)
+
+
+def fix_timestamps(sessions, verbose=True):
+    for session in browse_sessions(sessions):
+        for i in range(4):
+            video = session + "sensor_%d/" % (i+1) + "video/"
+            segments = json.load(open(video + "segments.json", "r"))
+
+            print("\n%d segments in" % len(segments), video)
+            for segment in segments:
+                prefix = segment['prefix']
+                data = json.load(open(video + prefix + "_timestamps.json"))
+
+                t_names = ["python_timestamp", "global_timestamp", "gstreamer_timestamp"]
+                ts = np.array([[meta[t_name] for t_name in t_names] for meta in data])
+                pmin, gmin = np.min(ts[:, 0]), np.min(ts[:, 1])
+
+                ts[:, 0] -= pmin
+                ts[:, 1] -= gmin
+                ts[:, 1] /= 1200  # Radio frequency
+                ts[:, 2] -= np.min(ts[:, 2])  # Camera specific clock origin doesn't matter
+
+                true_gsts, per = analyze_timestamps(ts[:, 2], prefix, 14.4, verbose=True, plot=True, savefigs=video+prefix+"_sync/")
+                # plt.show()
+
+                plt.figure("gstreamer_to_python", (16, 9))
+                plt.gcf().clear()
+                sl, off = correlate(ts[:, 2], ts[:, 0], ax=plt.gca(), xlabel='gstreamer', ylabel='python')
+                true_ps = true_gsts * sl + off
+                plt.savefig(video+prefix+"_sync/gstreamer_to_python", dpi=120)
+
+                plt.figure("python_to_global", (16, 9))
+                plt.gcf().clear()
+                sl, off = correlate(ts[:, 0], ts[:, 1], ax=plt.gca(), xlabel='python', ylabel='global')
+                true_gs = true_ps * sl + off
+                plt.savefig(video+prefix+"_sync/python_to_global", dpi=120)
+
+                true_gs = np.round(true_gs * 1200 + gmin).astype(np.int32)
+
+                with open(video + prefix + "_sync.json", "w") as f:
+                    json.dump({"global_timestamps": true_gs,
+                               "average_period": per * 1200,
+                               "clock_frequency, Hz": 1200}, f, indent=4, cls=NumpyEncoder)
+
+
 if __name__ == '__main__':
     num_gpus, n = 2, 3  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
     data_path = '../data/'
@@ -415,11 +523,14 @@ if __name__ == '__main__':
     # do_sweeps(sessions)
 
     # User interaction - choose optimal bitrates
-    compare_sweeps(sessions)
-    exit(0)
+    # compare_sweeps(sessions)
+    # exit(0)
 
-    print("\nPress enter to continue with merging...")
-    _ = input()
+    # print("\nPress enter to continue with merging...")
+    # _ = input()
 
     # Second pass - re-encode all video segments using optimal bitrate settings
-    encode_videos(sessions)
+    # encode_videos(sessions)
+
+    merge_timestamps(sessions)
+    fix_timestamps(sessions)
