@@ -71,7 +71,7 @@ def analyze_timestamps(ts, title, fps, n=10, bins=1000, debug=True, verbose=Fals
     off = np.median(ofs)
 
     # Compute frame ids
-    ids = np.round((ts - off) / per).astype(np.int)
+    ids = np.round((ts - off) / per).astype(np.int32)
 
     # Check for duplicates after rounding due to the frame acquisition delays
     for it in range(100):

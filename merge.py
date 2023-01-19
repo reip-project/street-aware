@@ -448,8 +448,8 @@ def merge_timestamps(sessions, verbose=True):
                 for i in good:
                     bufs = json.load(open(time + prefix + "_%d.json" % i, "r"))
                     num_bufs = len([k for k in bufs.keys() if k.startswith("buffer")])
-                    if i < 3 and verbose:
-                        print(num_bufs, "in", i, "-", bufs['file_id'], bufs['bundle_id'], sorted(bufs.keys()))
+                    # if i < 3 and verbose:
+                    #     print(num_bufs, "in", i, "-", bufs['file_id'], bufs['bundle_id'], sorted(bufs.keys()))
 
                     all_bufs.extend([bufs["buffer_%d" % i] for i in range(num_bufs)])
 
