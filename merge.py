@@ -458,7 +458,8 @@ def merge_timestamps(sessions, verbose=True):
                 print(len(lost), "lost during decoding:", lost)
 
                 for l in reversed(lost):
-                    del all_bufs[l]
+                    if l < len(all_bufs):
+                        del all_bufs[l]
 
                 # if os.path.exists(video + prefix + ".json"):
                 #     os.remove(video + prefix + ".json")
