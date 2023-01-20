@@ -178,7 +178,7 @@ def correlate(x, y, ax=None, xlabel="x", ylabel="y", exclude_outliers=True):
         idx = np.nonzero(np.abs(y - m) / std < 3)[0]  # 3 std corresponds to 37% out of range for uniform distribution
         n_out = y.shape[0] - idx.shape[0]
         if n_out > 0:
-            print(n_out, "outliers")
+            print(n_out, "outlier(s)")
         x, y = x[idx], y[idx]
 
     mb = np.polyfit(x, y, 1)  # fit a line
