@@ -30,8 +30,9 @@ class SegmentReader:
         self.timestamps = json.load(open(path + prefix + "_sync.json"))["global_timestamps"]
         self.meta = json.load(open(path + prefix + "_poses.json"))
         self.num_frames = int(self.reader.get(cv2.CAP_PROP_FRAME_COUNT))
-        assert self.num_frames == len(self.meta), "Metadata mismatch"
-        self.num_frames = min(self.num_frames, len(self.timestamps))
+        if self.num_frames != len(self.meta):
+            print("Metadata mismatch:", self.num_frames, len(self.meta))
+        self.num_frames = min(self.num_frames, len(self.meta), len(self.timestamps))
         print(self.num_frames, "frames total in", path + prefix + ".mkv")
 
         self.i = 0
@@ -210,7 +211,7 @@ if __name__ == '__main__':
 
     # render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=200, prep_jobs_only=False)
     jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=True, max_frames=None, prep_jobs_only=True)
-    n = 3  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
+    n = 2  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
     joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
     # for session in browse_sessions(sessions):
