@@ -210,8 +210,8 @@ if __name__ == '__main__':
     sessions = glob.glob(data_path + "*/")  # glob.glob behaves differently outside of __main__ (i.e. inside functions)
 
     # render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=200, prep_jobs_only=False)
-    jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=True, max_frames=None, prep_jobs_only=True)
-    n = 2  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
+    jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=None, prep_jobs_only=True)
+    n = 3  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
     joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
     # for session in browse_sessions(sessions):
