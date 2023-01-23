@@ -53,7 +53,8 @@ class GstVideo:
 
         # instructs appsrc to block pushing buffers until ones in queue are preprocessed
         # allows to avoid huge queue internal queue size in appsrc
-        # self.appsrc.set_property("block", True)
+        self.appsrc.set_property("block", True)
+        self.appsrc.set_property("max-bytes", 100_000_000)
 
         # set input format (caps)
         self.appsrc.set_caps(Gst.Caps.from_string(self.caps))
@@ -82,7 +83,7 @@ class GstVideo:
         if os.path.exists(self.filename):
             print("Overwriting", self.filename)
             os.remove(self.filename)
-        os.remove(self.temp_filename, self.filename)
+        os.rename(self.temp_filename, self.filename)
 
 
 if __name__ == '__main__':
