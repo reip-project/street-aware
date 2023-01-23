@@ -145,6 +145,10 @@ def render_single(path, segments, timing, cam_id, filename, bitrate, use_gpu=0, 
     full_filename = path + "../" + filename + ".mp4"
     if os.path.exists(full_filename) and not overwrite:
         print(full_filename, "already exists. Skipping...")
+        meta_filename = path + "../" + filename + "_meta.json"
+        if os.path.exists(meta_filename):
+            print("Renaming meta:", meta_filename)
+            os.rename(meta_filename, path + "../" + filename + "_poses.json")
         return
 
     reader = SessionReader(path, segments, tolerance=1.1*timing[2], anonymize=True, cam_id=cam_id)
@@ -163,7 +167,7 @@ def render_single(path, segments, timing, cam_id, filename, bitrate, use_gpu=0, 
         writer.write(frame)
         all_metas.append(meta)
 
-    with open(path + "../" + filename + "_meta.json", "w") as f:
+    with open(path + "../" + filename + "_poses.json", "w") as f:
         json.dump(all_metas, f, indent=None, cls=NumpyEncoder)
 
     with open(path + "../" + filename + ".json", "w") as f:
