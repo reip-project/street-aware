@@ -142,13 +142,13 @@ class SessionReader:
 
 
 def render_single(path, segments, timing, cam_id, filename, bitrate, use_gpu=0, max_frames=None, overwrite=False):
-    filename = path + "../" + filename + ".mp4"
-    if os.path.exists(overwrite) and not overwrite:
-        print(filename, "already exists. Skipping...")
+    full_filename = path + "../" + filename + ".mp4"
+    if os.path.exists(full_filename) and not overwrite:
+        print(full_filename, "already exists. Skipping...")
         return
 
     reader = SessionReader(path, segments, tolerance=1.1*timing[2], anonymize=True, cam_id=cam_id)
-    writer = GstVideo(filename, 2592, 1944, 1200 / timing[2], format="BGR",
+    writer = GstVideo(full_filename, 2592, 1944, 1200 / timing[2], format="BGR",
                       bitrate=bitrate, variable=True, codec='h264', gpu=use_gpu)
 
     all_metas = []
@@ -219,7 +219,7 @@ if __name__ == '__main__':
     # render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=200, prep_jobs_only=False, overwrite=True)
     jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=None, prep_jobs_only=True)
     n = 3  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
-    joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="threading")(jobs)
+    joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
     # for session in browse_sessions(sessions):
     #     renders = json.load(open(session + "meta/video_qualities.json", "r"))
