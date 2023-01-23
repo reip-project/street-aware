@@ -52,7 +52,7 @@ class SegmentReader:
         if meta is not None:
             if len(meta["poses"]) == 0:
                 return
-            blurred = cv2.GaussianBlur(frame, (15, 15), cv2.BORDER_DEFAULT)
+            blurred = cv2.GaussianBlur(frame, (50, 50), cv2.BORDER_DEFAULT)
             mask = np.zeros_like(frame)
             for pose in meta["poses"]:
                 pose = np.array(pose)
@@ -211,7 +211,64 @@ def render_all(sessions, use_gpu=0, skip_cameras=True, max_frames=None, prep_job
     return jobs
 
 
+def render_mosaic(session, scale=3, max_frames=None, save_images=True, save_every=1000, use_gpu=0, overwrite=False):
+    if os.path.exists(session + "mosaic.mp4") and not overwrite:
+        print(session + "mosaic.mp4", "already exists. Skipping...")
+        return
+
+    readers = []
+    for sensor_id in range(4):
+        for cam_id in ["left", "right"]:
+            filename = session + "sensor_%d/" % (sensor_id + 1) + cam_id + ".mp4"
+            readers.append(cv2.VideoCapture(filename))
+
+    w, h, fps = W // scale, H // scale, 14
+    writer = GstVideo(session + "mosaic.mp4", 4*w, 2*h, fps, format="BGR",
+                      bitrate=DEFAULT_BITRATE, variable=True, codec='h264', gpu=use_gpu)
+    if save_images:
+        if not os.path.exists(session + "mosaic/"):
+            os.mkdir(session + "mosaic/")
+
+    tot_frames = 0
+    while True:
+        frames = []
+        for reader in readers:
+            ret, frame = reader.read()
+            if not ret:
+                frames = None
+                break
+            else:
+                frames.append(cv2.resize(frame, (w, h), interpolation=cv2.INTER_AREA))
+
+        if frames is None:
+            break
+
+        big_frame = np.zeros((2*h, 4*w, 3), dtype=np.uint8)
+        for i, frame in enumerate(frames):
+            r, c = i // 4, i % 4
+            big_frame[r*h:(r*h+h), c*w:(c*w+w), :] = frame
+
+        if save_images and (tot_frames % save_every) < 21:
+            cv2.imwrite(session + "mosaic/%d.jpg" % tot_frames, big_frame)
+
+        writer.write(big_frame)
+        tot_frames += 1
+
+        if tot_frames % 100 == 0:
+            print(tot_frames, "frames rendered of", max_frames, "in", session)
+            gc.collect()
+
+        if max_frames is not None and tot_frames >= max_frames:
+            break
+
+    for reader in readers:
+        reader.release()
+
+    writer.close()
+
+
 if __name__ == '__main__':
+    n = 3  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
     use_gpu = 0
     if len(sys.argv) > 1:
         use_gpu = int(sys.argv[1])
@@ -220,9 +277,16 @@ if __name__ == '__main__':
     data_path = '../data/'
     sessions = glob.glob(data_path + "*/")  # glob.glob behaves differently outside of __main__ (i.e. inside functions)
 
+    # Single threaded
     # render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=200, prep_jobs_only=False, overwrite=True)
-    jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=None, prep_jobs_only=True)
-    n = 3  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
+    # Parallel
+    # jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=None, prep_jobs_only=True)
+    # joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
+
+    # for session in browse_sessions(sessions):
+    #     render_mosaic(session, max_frames=1050, save_images=True, save_every=910, use_gpu=use_gpu, overwrite=True)
+
+    jobs = [joblib.delayed(render_mosaic)(session, max_frames=None, save_images=True, use_gpu=use_gpu) for session in browse_sessions(sessions)]
     joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
     # for session in browse_sessions(sessions):
