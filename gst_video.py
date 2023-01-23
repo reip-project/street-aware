@@ -1,3 +1,5 @@
+import os.path
+
 import cv2
 import time
 import json
@@ -24,6 +26,10 @@ class GstVideo:
     def __init__(self, filename, width, height, fps, format="RGB", bitrate=10000, variable=True, codec="h265", gpu=0):
         self.context = GstContext()
         self.context.startup()
+        self.filename = filename
+        p = filename.rfind(".")
+        self.temp_filename = filename[:p] + "_temp" + filename[p:]
+        print("Temporary video file:", self.temp_filename)
 
         assert codec in ["h264", "h265"], "Unsupported codec %d" % codec
 
@@ -31,7 +37,7 @@ class GstVideo:
         self.command = "appsrc emit-signals=True is-live=False caps=%s ! queue ! videoconvert ! " \
                        "nv%senc preset=hq bitrate=%d rc-mode=%s gop-size=45 cuda-device-id=%d ! " \
                        "%sparse ! matroskamux ! filesink location=%s" \
-                       % (self.caps, codec, bitrate, "vbr" if variable else "cbr", gpu, codec, filename)
+                       % (self.caps, codec, bitrate, "vbr" if variable else "cbr", gpu, codec, self.temp_filename)
         self.pts = 0  # frame timestamp
         self.duration = 10**9 / fps  # frame duration
         self.pipeline, self.appsrc = GstPipeline(self.command), None
@@ -72,6 +78,11 @@ class GstVideo:
 
         self.pipeline.shutdown()
         self.context.shutdown()
+
+        if os.path.exists(self.filename):
+            print("Overwriting", self.filename)
+            os.remove(self.filename)
+        os.remove(self.temp_filename, self.filename)
 
 
 if __name__ == '__main__':

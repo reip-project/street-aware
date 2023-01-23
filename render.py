@@ -1,4 +1,4 @@
-import numpy as np
+import gc
 
 from merge import *
 from hrnet_pose import *
@@ -141,9 +141,14 @@ class SessionReader:
             reader.release()
 
 
-def render_single(path, segments, timing, cam_id, filename, bitrate, use_gpu=0, max_frames=None):
+def render_single(path, segments, timing, cam_id, filename, bitrate, use_gpu=0, max_frames=None, overwrite=False):
+    filename = path + "../" + filename + ".mp4"
+    if os.path.exists(overwrite) and not overwrite:
+        print(filename, "already exists. Skipping...")
+        return
+
     reader = SessionReader(path, segments, tolerance=1.1*timing[2], anonymize=True, cam_id=cam_id)
-    writer = GstVideo(path + "../" + filename + ".mp4", 2592, 1944, 1200 / timing[2], format="BGR",
+    writer = GstVideo(filename, 2592, 1944, 1200 / timing[2], format="BGR",
                       bitrate=bitrate, variable=True, codec='h264', gpu=use_gpu)
 
     all_metas = []
@@ -152,6 +157,8 @@ def render_single(path, segments, timing, cam_id, filename, bitrate, use_gpu=0, 
             break
         if i > 0 and i % 100 == 0:
             print(i, "frames rendered of", max_frames, "in", path + "../" + filename + ".mp4")
+            gc.collect()
+
         frame, meta = reader.get_frame(t)
         writer.write(frame)
         all_metas.append(meta)
@@ -167,7 +174,7 @@ def render_single(path, segments, timing, cam_id, filename, bitrate, use_gpu=0, 
     reader.release()
 
 
-def render_all(sessions, use_gpu=0, skip_cameras=True, max_frames=None, prep_jobs_only=False):
+def render_all(sessions, use_gpu=0, skip_cameras=True, max_frames=None, prep_jobs_only=False, overwrite=False):
     jobs = []
 
     for session in browse_sessions(sessions):
@@ -194,9 +201,9 @@ def render_all(sessions, use_gpu=0, skip_cameras=True, max_frames=None, prep_job
                 filename = orders["sensor_%d" % (sensor_i+1)][cam_id]
 
                 if prep_jobs_only:
-                    jobs.append(joblib.delayed(render_single)(video, segments, (l, r, per), cam_id, filename, bitrate, use_gpu=use_gpu, max_frames=max_frames))
+                    jobs.append(joblib.delayed(render_single)(video, segments, (l, r, per), cam_id, filename, bitrate, use_gpu=use_gpu, max_frames=max_frames, overwrite=overwrite))
                 else:
-                    render_single(video, segments, (l, r, per), cam_id, filename, bitrate, use_gpu=use_gpu, max_frames=max_frames)
+                    render_single(video, segments, (l, r, per), cam_id, filename, bitrate, use_gpu=use_gpu, max_frames=max_frames, overwrite=overwrite)
     return jobs
 
 
@@ -209,10 +216,10 @@ if __name__ == '__main__':
     data_path = '../data/'
     sessions = glob.glob(data_path + "*/")  # glob.glob behaves differently outside of __main__ (i.e. inside functions)
 
-    # render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=200, prep_jobs_only=False)
+    # render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=200, prep_jobs_only=False, overwrite=True)
     jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=None, prep_jobs_only=True)
     n = 3  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
-    joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
+    joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="threading")(jobs)
 
     # for session in browse_sessions(sessions):
     #     renders = json.load(open(session + "meta/video_qualities.json", "r"))
