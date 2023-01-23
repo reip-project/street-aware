@@ -211,6 +211,55 @@ def render_all(sessions, use_gpu=0, skip_cameras=True, max_frames=None, prep_job
     return jobs
 
 
+def subsample_single(filename, suffix, divider=1, bitrate=DEFAULT_BITRATE, variable=True, codec="h264", gpu=0, overwrite=True):
+    p = filename.rfind('.')
+    new_filename = filename[:p] + suffix + filename[p:]
+    print("\nBitrate", bitrate, "kbps with", codec, "codec for", new_filename)
+    if os.path.exists(new_filename) and not overwrite:
+        print(new_filename, "already exists. Skipping...")
+        return
+
+    assert codec in ["h264", "h265"], "Unsupported codec %d" % codec
+
+    cmd = "filesrc location=%s ! decodebin ! videoconvert ! " \
+          "videoscale ! video/x-raw, width=%d, height=%d ! " \
+          "nv%senc preset=hq bitrate=%d rc-mode=%s gop-size=45 cuda-device-id=%d ! %sparse ! matroskamux ! filesink location=%s" \
+          % (filename, W // divider, H // divider, codec, bitrate, "vbr" if variable else "cbr", gpu, codec, new_filename)
+
+    print(cmd)
+    # return
+
+    os.environ.update({"GST_DEBUG": "2,filesink:4,GST_EVENT:3"})
+    proc = subprocess.Popen(["gst-launch-1.0", *(cmd.split(" "))], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+
+    for line in proc.stdout:
+        print(line[:-1])
+
+
+def subsample_all(sessions, num_gpus=2):
+    jobs = []
+
+    for session in browse_sessions(sessions):
+        renders = json.load(open(session + "meta/video_qualities.json", "r"))
+        orders = json.load(open(session + "meta/camera_orders.json", "r"))
+
+        for render in renders:
+            for i in range(4):
+                codec, suffix, divider = render["codec"], render["suffix"], render["divider"]
+                qualities = render["qualities"]["sensor_" + str(i + 1)]
+                qmap = {"low": 0, "mid": 1, "high": 2}
+                bitrates = [render["bitrates"][qmap[q]] for q in qualities]
+
+                if codec != 'h264':
+                    continue
+
+                for cam_id in range(2):
+                    cam_name = orders["sensor_%d" % (i+1)][cam_id]
+                    jobs.append(joblib.delayed(subsample_single)(session + "sensor_%d/" % (i+1) + cam_name + ".mp4", render["suffix"],
+                                                                 divider=render["divider"], bitrate=bitrates[cam_id], gpu=cam_id % num_gpus, overwrite=False))
+    return jobs
+
+
 def render_mosaic(session, scale=3, max_frames=None, save_images=True, save_every=1000, use_gpu=0, overwrite=False):
     if os.path.exists(session + "mosaic.mp4") and not overwrite:
         print(session + "mosaic.mp4", "already exists. Skipping...")
@@ -283,10 +332,14 @@ if __name__ == '__main__':
     # jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=None, prep_jobs_only=True)
     # joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
+    jobs = subsample_all(sessions, num_gpus=2)
+
+    # Single threaded
     # for session in browse_sessions(sessions):
     #     render_mosaic(session, max_frames=1050, save_images=True, save_every=910, use_gpu=use_gpu, overwrite=True)
+    # Parallel
+    # jobs = [joblib.delayed(render_mosaic)(session, max_frames=None, save_images=True, use_gpu=use_gpu) for session in browse_sessions(sessions)]
 
-    jobs = [joblib.delayed(render_mosaic)(session, max_frames=None, save_images=True, use_gpu=use_gpu) for session in browse_sessions(sessions)]
     joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
     # for session in browse_sessions(sessions):
