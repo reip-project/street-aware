@@ -4,14 +4,26 @@ import scipy.io.wavfile as wav
 from merge import *
 
 
+def read_mapped(files):
+    mapped = []
+    for file in files:
+        try:
+            f = wav.read(file, mmap=True)[1]
+            mapped.append(f)
+        except:
+            print("Bad audio chunk:", file, "Skipping...")
+    return mapped
+
+
 # Audio sampling rate is hardcoded to 48 kHz - depends on radio firmware
 def decode_single(path, plot=False, save=True, savefig=True, silent=False, verbose=True):
     files = sorted(glob.glob(path + "/*.wav"))
     print("\n%d files in %s:" % (len(files), path), files[:10])
-    if len(files) < 2:
+    if len(files) == 0:
         return
 
-    mapped = [wav.read(file, mmap=True)[1] for file in files[:-1]]
+    # mapped = [wav.read(file, mmap=True)[1] for file in files]
+    mapped = read_mapped(files)
     data = np.concatenate(mapped, axis=0)  # makes a copy here?
     print("data:", data.shape, "- %.3f sec @ 48 kHz" % (data.shape[0]/48000))
 
@@ -29,6 +41,10 @@ def decode_single(path, plot=False, save=True, savefig=True, silent=False, verbo
     bits = b[off.ravel()].reshape((n, 32)).astype(np.uint8)  # sample timestamp bits in the middle of 5 audio samples
     t = np.packbits(bits, axis=-1, bitorder="little")  # pack bits into bytes first
     ts = np.sum(t * np.array([1, 2 ** 8, 2 ** 16, 2 ** 24])[None, :], axis=1)  # now pack bytes into timestamps
+    idx = np.nonzero(ts > 20_000_000)[0]  # Buggy unrealistic timestamps due to the CRC check failure in radio receiver
+    if idx.shape[0] > 0:
+        print("Found unrealistic timestamps:", ts[idx])
+        ts[idx] += np.arange(idx.shape[0])  # Force-trigger a gap to have them removed
     err = np.nonzero(np.diff(ts) - 10)[0]  # detect decoding errors (due to the overrun errors)
 
     if not silent:
@@ -115,7 +131,8 @@ def load_data(path):
     if not len(files):
         return None
 
-    mapped = [wav.read(file, mmap=True)[1] for file in files[:-1]]
+    # mapped = [wav.read(file, mmap=True)[1] for file in files]
+    mapped = read_mapped(files)
     return np.concatenate(mapped, axis=0)  # makes a copy here?
 
 
