@@ -33,7 +33,12 @@ class GstVideo:
 
         assert codec in ["h264", "h265"], "Unsupported codec %d" % codec
 
-        self.caps = "video/x-raw,format=%s,width=%d,height=%d,framerate=%d/1" % (format, width, height, fps)
+        if type(fps) is float:
+            self.caps = "video/x-raw,format=%s,width=%d,height=%d,framerate=(fraction)%d/%d"\
+                        % (format, width, height, int(round(fps * 100_000)), 100_000)
+        else:
+            self.caps = "video/x-raw,format=%s,width=%d,height=%d,framerate=%d/1" % (format, width, height, fps)
+
         self.command = "appsrc emit-signals=True is-live=False caps=%s ! queue ! videoconvert ! " \
                        "nv%senc preset=hq bitrate=%d rc-mode=%s gop-size=45 cuda-device-id=%d ! " \
                        "%sparse ! matroskamux ! filesink location=%s" \

@@ -271,7 +271,9 @@ def render_mosaic(session, scale=3, max_frames=None, save_images=True, save_ever
             filename = session + "sensor_%d/" % (sensor_id + 1) + cam_id + ".mp4"
             readers.append(cv2.VideoCapture(filename))
 
-    w, h, fps = W // scale, H // scale, 14
+    meta = json.load(open(session + "sensor_1/left.json"))
+    fps = meta["frequency, Hz"] / meta["period"]
+    w, h = W // scale, H // scale
     writer = GstVideo(session + "mosaic.mp4", 4*w, 2*h, fps, format="BGR",
                       bitrate=DEFAULT_BITRATE, variable=True, codec='h264', gpu=use_gpu)
     if save_images:
@@ -332,13 +334,13 @@ if __name__ == '__main__':
     # jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=None, prep_jobs_only=True)
     # joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
-    jobs = subsample_all(sessions, num_gpus=2)
+    # jobs = subsample_all(sessions, num_gpus=2)
 
     # Single threaded
     # for session in browse_sessions(sessions):
-    #     render_mosaic(session, max_frames=1050, save_images=True, save_every=910, use_gpu=use_gpu, overwrite=True)
+    #     render_mosaic(session, max_frames=None, save_images=True, save_every=910, use_gpu=use_gpu, overwrite=True)
     # Parallel
-    # jobs = [joblib.delayed(render_mosaic)(session, max_frames=None, save_images=True, use_gpu=use_gpu) for session in browse_sessions(sessions)]
+    jobs = [joblib.delayed(render_mosaic)(session, max_frames=None, save_images=True, use_gpu=use_gpu) for session in browse_sessions(sessions)]
 
     joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
