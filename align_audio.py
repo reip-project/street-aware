@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import scipy.io.wavfile as wav
 
 from merge import *
@@ -6,8 +7,8 @@ from merge import *
 # Audio sampling rate is hardcoded to 48 kHz - depends on radio firmware
 def decode_single(path, plot=False, save=True, savefig=True, silent=False, verbose=True):
     files = sorted(glob.glob(path + "/*.wav"))
-    print("\n%d files in %s:" % (len(files), path), files)
-    if len(files) == 0:
+    print("\n%d files in %s:" % (len(files), path), files[:10])
+    if len(files) < 2:
         return
 
     mapped = [wav.read(file, mmap=True)[1] for file in files[:-1]]
@@ -90,7 +91,7 @@ def decode_single(path, plot=False, save=True, savefig=True, silent=False, verbo
                 "total_overrun_help": "audio_samples",
                 "clock_adjustment_help": ">0 means radio is faster"}
 
-        with open(path + "/audio_timestamps.json", "w") as f:
+        with open(path + "/timestamps.json", "w") as f:
             json.dump(meta, f, indent=4)
 
     if plot:
@@ -98,14 +99,15 @@ def decode_single(path, plot=False, save=True, savefig=True, silent=False, verbo
         plt.plot(timestamps[:, 0], timestamps[:, 1], "b-", label="All timestamps")
         plt.plot(x, np.poly1d(mb)(x), "r-", label="Clock fit")
         for i in range(jumps.shape[0]):
-            plt.plot((jumps[i, [0, 0]] + [0, jumps[i, 5]]), jumps[i, [1, 3]], ".-", label="Overrun jump %d" % i)
+            plt.plot((jumps[i, [0, 0]] + [0, jumps[i, 5]]), jumps[i, [1, 3]], ".-", label="Jump %d" % i)
         plt.xlabel("Audio position")
         plt.ylabel("Radio timestamp")
+        plt.title("Clock adjustment = " + str(clock_adjustment) + " (>0 means radio is faster)")
         plt.legend()
         plt.tight_layout()
 
         if savefig:
-            plt.savefig(path + "audio_timestamps.png", dpi=120)
+            plt.savefig(path + "/../array.png", dpi=120)
 
 
 def load_data(path):
@@ -118,7 +120,7 @@ def load_data(path):
 
 
 def load_meta(path):
-    filename = path + "/audio_timestamps.json"
+    filename = path + "/timestamps.json"
     if not os.path.isfile(filename):
         return None
 
@@ -163,6 +165,11 @@ def align_all(session):
                 merged[new_ap:new_ap+chunk, :] = d[ap:ap+chunk, :12]
 
             wav.write(session + "/sensor_%d/array.wav" % (i + 1), 48000, merged)
+            with open(session + "/sensor_%d/array.json" % (i + 1), "w") as f:
+                json.dump({"start": min_t, "stop": max_t,
+                           "radio_period": 10, "audio_period": 400,
+                           "radio_frequency, Hz": 1200,
+                           "audio_frequency, Hz": 48000}, f, indent=4, cls=NumpyEncoder)
 
 
 def display_all(base_path, channel=0, savefig=None):
@@ -179,14 +186,52 @@ def display_all(base_path, channel=0, savefig=None):
     for i, d in enumerate(data):
         if d is None:
             continue
-        plt.plot(d[::10, channel] + (i+1) * 1000, label=str(i+1))
+        plt.plot(d[::10, channel] + (i+1) * 1000, label="Sensor " + str(i+1))
     plt.xlabel("Sample (every 10th)")
     plt.ylabel("Amplitude (with id*1000 offset)")
+    plt.title("Channel %d of each array" % channel)
     plt.legend()
     plt.tight_layout()
 
     if savefig is not None:
-        plt.savefig(savefig + "/audio_sync.png", dpi=120)
+        plt.savefig(savefig + "/audio.png", dpi=120)
+
+
+def crop_single(path, title, channels=(0, 3), offset=173):
+    print("Using offset %d for" % offset, path)
+    data = wav.read(path + "array.wav", mmap=True)[1]
+    meta = json.load(open(path + "array.json"))
+    vmeta = json.load(open(path + "left.json"))
+
+    al, ar = meta["start"] + offset, meta["stop"] + offset
+    vl, vr = vmeta["start"], vmeta["stop"]
+    a_per, r_per, v_per = meta["audio_period"], meta["radio_period"], vmeta["period"]
+    r2a = meta["audio_frequency, Hz"] // meta["radio_frequency, Hz"]
+
+    ol = ar - al + r_per
+    nl = vr - vl + round(v_per)
+    new_data = np.zeros((nl * r2a, len(channels)), dtype=np.int16)
+
+    if al < vl:
+        l_from = (vl-al) * r2a
+        l_to = 0
+
+        if nl < ol - l_from:
+            l = nl * r2a
+        else:
+            l = (ol - l_from) * r2a
+    else:
+        l_from = 0
+        l_to = (al-vl) * r2a
+
+        if ol < nl - l_to:
+            l = ol * r2a
+        else:
+            l = (nl - l_to) * r2a
+
+    new_data[l_to:l_to+l, :] = data[l_from:l_from+l, channels]
+
+    wav.write(path + "../%s.wav" % title, 48000, new_data)
 
 
 if __name__ == '__main__':
@@ -200,5 +245,8 @@ if __name__ == '__main__':
 
         align_all(session)
         display_all(session + "/sensor_%d/array.wav", savefig=session)
+
+        for i in range(4):
+            crop_single(session + "sensor_%d/" % (i + 1), "stereo_%d" % (i + 1))
 
     plt.show()
