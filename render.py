@@ -318,7 +318,40 @@ def render_mosaic(session, scale=3, max_frames=None, save_images=True, save_ever
     writer.close()
 
 
+def pad_mosaic(filename):
+    img = cv2.imread(filename)
+    scale = 3
+    w, h = 2592 // scale, 1944 // scale
+    pad, off = 100, 150
+
+    img[h:2*h, 2*w:3*w, :] = 0
+
+    pimg = np.ones((h*2+pad+2*off, w*4+pad*3+2*off, 3), np.uint8) * 255
+    for i in range(2):
+        for j in range(4):
+            pimg[off+i*(h+pad):off+i*(h+pad)+h, off+j*(w+pad):off+j*(w+pad)+w, :] = img[i*(h+0):i*(h+0)+h, j*(w+0):j*(w+0)+w, :]
+
+    H, W, d = pimg.shape[0], pimg.shape[1], off - pad
+    pimg[:, :W//2, :] = pimg[:, d:d+W//2, :]
+    pimg[:, W//2:, :] = pimg[:, W//2-d:W-d, :]
+    pimg[H//2:, :, :] = pimg[H//2-3*d//2:H-3*d//2, :, :]
+    pimg[H//2-d//2:H//2+d//2, :, :] = 255
+
+    p2 = 25
+    for i in range(2):
+        for j in range(2):
+            l, t = off-d + j*(2*w+2*pad+2*d) - p2, off + i*(h+pad+3*d//2) - p2
+            r, b = l + 2*w+pad + 2*p2, t + h + 2*p2
+            cv2.rectangle(pimg, (l, t), (r, b), (0, 165, 255), 7)
+            cv2.putText(pimg, "Sensor %d" % (i*2 + j + 1), ((l+r)//2 - 150, t-p2-5), cv2.FONT_HERSHEY_SIMPLEX, 2.1, (0, 0, 0), 4, cv2.LINE_AA)
+
+    cv2.imwrite(filename[:-4] + "_padded.jpg", pimg)
+    exit(0)
+
+
 if __name__ == '__main__':
+    pad_mosaic("mosaic_sample.jpg")
+
     n = 3  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
     use_gpu = 0
     if len(sys.argv) > 1:

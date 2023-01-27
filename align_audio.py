@@ -188,8 +188,21 @@ def align_all(session):
                            "radio_frequency, Hz": 1200,
                            "audio_frequency, Hz": 48000}, f, indent=4, cls=NumpyEncoder)
 
+SMALL_SIZE = 18
+MEDIUM_SIZE = 20
+BIGGER_SIZE = 22
 
-def display_all(base_path, channel=0, savefig=None):
+plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
+plt.rc('axes', titlesize=BIGGER_SIZE)     # fontsize of the axes title
+plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
+plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
+plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
+plt.rcParams["font.family"] = "serif"
+
+
+def display_all(base_path, channel=0, title=None, savefig=None):
     print("\ndisplay:", base_path)
     data = [None] * 4
     for i in range(4):
@@ -200,18 +213,30 @@ def display_all(base_path, channel=0, savefig=None):
         data[i] = wav.read(filename, mmap=True)[1]
 
     plt.figure(base_path, (16, 9))
+    stride = 100
     for i, d in enumerate(data):
         if d is None:
             continue
-        plt.plot(d[::10, channel] + (i+1) * 1000, label="Sensor " + str(i+1))
-    plt.xlabel("Sample (every 10th)")
-    plt.ylabel("Amplitude (with id*1000 offset)")
-    plt.title("Channel %d of each array" % channel)
+        x = np.arange(d[::stride, channel].shape[0]) / (60 * 48000/stride)
+        plt.plot(x, d[::stride, channel] + (-i-1) * 1000, label="Sensor " + str(i+1))
+        if i == 2:
+            next(plt.gca()._get_lines.prop_cycler)
+
+    plt.xlim([-0.1, 0.1 + x.shape[0] / (60 * 48000/stride)])
+    plt.ylim([-5500, 600])
+    plt.xlabel("Time, minutes")
+    # plt.ylabel("Amplitude, 16-bit (with -SensorID*1000 offset)")
+    plt.ylabel("Amplitude, 16-bit (with offset)")
+    if title is None:
+        plt.title("Channel %d of each sensor's microphone array" % channel)
+    else:
+        if title != "":
+            plt.title(title)
     plt.legend()
     plt.tight_layout()
 
     if savefig is not None:
-        plt.savefig(savefig + "/audio.png", dpi=120)
+        plt.savefig(savefig + "/audio.png", dpi=240)
 
 
 def crop_single(path, title, channels=(0, 3), offset=173):
@@ -256,14 +281,14 @@ if __name__ == '__main__':
     sessions = glob.glob(data_path + "*/")  # glob.glob behaves differently outside of __main__ (i.e. inside functions)
 
     for session in browse_sessions(sessions):
-        for i in range(4):
-            audio = session + "sensor_%d/" % (i + 1) + "audio/"
-            decode_single(audio, plot=True, save=True, silent=False, verbose=True)
+        # for i in range(4):
+        #     audio = session + "sensor_%d/" % (i + 1) + "audio/"
+        #     decode_single(audio, plot=True, save=True, silent=False, verbose=True)
 
-        align_all(session)
-        display_all(session + "/sensor_%d/array.wav", savefig=session)
+        # align_all(session)
+        display_all(session + "/sensor_%d/array.wav", savefig=session, title="")
 
-        for i in range(4):
-            crop_single(session + "sensor_%d/" % (i + 1), "stereo_%d" % (i + 1))
+        # for i in range(4):
+        #     crop_single(session + "sensor_%d/" % (i + 1), "stereo_%d" % (i + 1))
 
     plt.show()
