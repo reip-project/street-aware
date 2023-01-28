@@ -222,7 +222,7 @@ def display_all(base_path, channel=0, title=None, savefig=None):
         if i == 2:
             next(plt.gca()._get_lines.prop_cycler)
 
-    plt.xlim([-0.1, 0.1 + x.shape[0] / (60 * 48000/stride)])
+    plt.xlim([-0.02, 0.02 + x.shape[0] / (60 * 48000/stride)])
     plt.ylim([-5500, 600])
     plt.xlabel("Time, minutes")
     # plt.ylabel("Amplitude, 16-bit (with -SensorID*1000 offset)")

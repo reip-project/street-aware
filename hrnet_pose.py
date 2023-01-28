@@ -84,8 +84,8 @@ def draw_pose(keypoints, img):
         kpt_a, kpt_b = SKELETON[i][0], SKELETON[i][1]
         x_a, y_a = keypoints[kpt_a][0], keypoints[kpt_a][1]
         x_b, y_b = keypoints[kpt_b][0], keypoints[kpt_b][1]
-        cv2.circle(img, (int(x_a), int(y_a)), 6, CocoColors[i], -1)
-        cv2.circle(img, (int(x_b), int(y_b)), 6, CocoColors[i], -1)
+        cv2.circle(img, (int(x_a), int(y_a)), 5, CocoColors[i], -1)
+        cv2.circle(img, (int(x_b), int(y_b)), 5, CocoColors[i], -1)
         cv2.line(img, (int(x_a), int(y_a)), (int(x_b), int(y_b)), CocoColors[i], 2)
 
 

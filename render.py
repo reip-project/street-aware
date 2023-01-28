@@ -346,11 +346,53 @@ def pad_mosaic(filename):
             cv2.putText(pimg, "Sensor %d" % (i*2 + j + 1), ((l+r)//2 - 150, t-p2-5), cv2.FONT_HERSHEY_SIMPLEX, 2.1, (0, 0, 0), 4, cv2.LINE_AA)
 
     cv2.imwrite(filename[:-4] + "_padded.jpg", pimg)
-    exit(0)
+
+
+def extract_frames_with_poses(filename, start_frame=5000, max_frame=5500):
+    reader = cv2.VideoCapture(filename)
+    metas = json.load(open(filename[:-4] + "_poses.json"))
+    if not os.path.exists(filename[:-4]):
+        os.mkdir(filename[:-4])
+
+    i = 0
+    while True:
+        ret, frame = reader.read()
+        if not ret:
+            break
+
+        if i >= start_frame:
+            meta = metas[i]
+            if meta is not None:
+                boxes, poses = meta["boxes"], meta["poses"]
+                for j in range(len(boxes)):
+                    b, p = boxes[j], poses[j]
+                    # print(i, j, boxes[j])
+                    cv2.rectangle(frame, (b[0][0]-1, b[0][1]-1), (b[1][0]+1, b[1][1]+1), (0, 250, 0), 3)
+                    draw_pose(np.array(p), frame)
+
+            cv2.imwrite(filename[:-4] + "/%d.jpg" % i, frame)
+            if i in [0, 5031, 5041, 5108, 5110, 5111, 5112, 5113, 5175]:
+                path = filename[:filename.rfind("/")+1]
+                s = int(path[-2])
+                cv2.imwrite(path + "../%d_%d.jpg" % (s, i), frame)
+
+        if i % 100 == 0:
+            print("Extracted", i, "from", filename)
+
+        i += 1
+        if i > max_frame:
+            break
+
+    reader.release()
 
 
 if __name__ == '__main__':
     pad_mosaic("mosaic_sample.jpg")
+    # extract_frames_with_poses('../all_data/dumbo_2/sensor_1/right.mp4', start_frame=0, max_frame=100)
+    extract_frames_with_poses('../all_data/dumbo_2/sensor_1/right.mp4', start_frame=5000, max_frame=5200)
+    extract_frames_with_poses('../all_data/dumbo_2/sensor_4/right.mp4', start_frame=5000, max_frame=5200)
+    exit(0)
+
 
     n = 3  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
     use_gpu = 0
