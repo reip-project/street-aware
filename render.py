@@ -404,7 +404,7 @@ if __name__ == '__main__':
     sessions = glob.glob(data_path + "*/")  # glob.glob behaves differently outside of __main__ (i.e. inside functions)
 
     # Single threaded
-    # render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=200, prep_jobs_only=False, overwrite=True)
+    render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=200, prep_jobs_only=False, overwrite=True)
     # Parallel
     # jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=None, prep_jobs_only=True)
     # joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
@@ -415,9 +415,9 @@ if __name__ == '__main__':
     # for session in browse_sessions(sessions):
     #     render_mosaic(session, max_frames=None, save_images=True, save_every=910, use_gpu=use_gpu, overwrite=True)
     # Parallel
-    jobs = [joblib.delayed(render_mosaic)(session, max_frames=None, save_images=True, use_gpu=use_gpu) for session in browse_sessions(sessions)]
+    # jobs = [joblib.delayed(render_mosaic)(session, max_frames=None, save_images=True, use_gpu=use_gpu) for session in browse_sessions(sessions)]
 
-    joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
+    # joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
     # for session in browse_sessions(sessions):
     #     renders = json.load(open(session + "meta/video_qualities.json", "r"))
