@@ -1,4 +1,8 @@
 import gc
+import os
+import time
+
+import skimage
 
 from merge import *
 from hrnet_pose import *
@@ -28,7 +32,12 @@ class SegmentReader:
         self.tolerance, self.anonymize = tolerance, anonymize
         self.reader = cv2.VideoCapture(path + prefix + ".mkv")
         self.timestamps = json.load(open(path + prefix + "_sync.json"))["global_timestamps"]
-        self.meta = json.load(open(path + prefix + "_poses.json"))
+        # self.meta = json.load(open(path + prefix + "_poses.json"))
+        poses = json.load(open(path + prefix + "_poses.json"))
+        faces = json.load(open(path + prefix + "_faces.json"))
+        # self.meta = [{}.update(pose).update(face) for pose, face in zip(poses, faces)]
+        self.meta = [{**pose, **face} for pose, face in zip(poses, faces)]
+        # print(self.meta[:10])
         self.num_frames = int(self.reader.get(cv2.CAP_PROP_FRAME_COUNT))
         if self.num_frames != len(self.meta):
             print("Metadata mismatch:", self.num_frames, len(self.meta))
@@ -48,25 +57,82 @@ class SegmentReader:
             self._anonymize(self.lframe, self.lmeta)
             self._anonymize(self.rframe, self.rmeta)
 
+    def _blur_box(self, frame, c, s):
+        # print(frame.shape, c, s)
+        x1, y1, x2, y2 = max(0, c[0] - s[0]), max(0, c[1] - s[1]), min(c[0] + s[0], 2592), min(c[1] + s[1], 1944)
+        if x2-x1 == 0 or y2-y1 == 0:
+            return
+        # print(x1, y1, x2, y2)
+        bf = 2  # blur factor (number of pixels in each dimension that the face will be reduced to)
+        try:
+            blurred_box = cv2.blur(frame[y1:y2, x1:x2], (1+abs(x2 - x1) // bf, 1+abs(y2 - y1) // bf))
+        except Exception as e:
+            print(x1, y1, x2, y2)
+            raise e
+        roibox = frame[y1:y2, x1:x2]
+        ey, ex = skimage.draw.ellipse((y2 - y1) // 2, (x2 - x1) // 2, (y2 - y1) // 2, (x2 - x1) // 2)
+        roibox[ey, ex] = blurred_box[ey, ex]
+        frame[y1:y2, x1:x2] = roibox
+        # frame[y1:y2, x1:x2] = 0
+
     def _anonymize(self, frame, meta):
         if meta is not None:
-            if len(meta["poses"]) == 0:
-                return
-            blurred = cv2.GaussianBlur(frame, (50, 50), cv2.BORDER_DEFAULT)
-            mask = np.zeros_like(frame)
-            for pose in meta["poses"]:
-                pose = np.array(pose)
-                f_min = np.min(pose[:5, :], axis=0)
-                f_max = np.max(pose[:5, :], axis=0)
+            # if len(meta["faces"]) == 0 and len(meta["poses"]) == 0:
+            #     return
+
+            # # blurred = [cv2.GaussianBlur(frame, (s, s), cv2.BORDER_DEFAULT) for s in [51, 151, 451]]
+            # t0 = time.time()
+            # blurred = [cv2.GaussianBlur(frame, (s, s), cv2.BORDER_DEFAULT) for s in [251]]
+            # t1 = time.time()
+            # # blurred = [gaussian_filter(frame, sigma=s) for s in [51]]
+            # blurred = [blur(frame, sigma=s) for s in [251]]
+            # t2 = time.time()
+            # print(t2-t1, t1-t0)
+            # masks = [np.zeros_like(frame) for i in range(len(blurred))]
+
+            for i, face_i in enumerate(meta["faces"]):
+                face = np.array(face_i)
+                # print(i, face)
+                face = face.reshape((2, 2))
+                f_c = np.round(np.average(face, axis=0)).astype(np.int32)
+                f_s = (face[1, :] - face[0, :]) // 2
+                f_s[0] = np.round(f_s[0] * 1.2)
+                f_s[1] = np.round(f_s[1] * 1.5)
+                self._blur_box(frame, f_c, f_s)
+                # # cv2.rectangle(frame, (f_c[0] - f_s[0], f_c[1] - f_s[1]), (f_c[0] + f_s[0], f_c[1] + f_s[1]), (0, 255, 0), 2)
+                # # cv2.ellipse(frame, (f_c[0], f_c[1]), (f_s[0], f_s[1]), 0, 0, 360, (0, 255, 0), -1)
+                # area = f_s[1] * f_s[0]
+                # i = 0
+                # # if area > 100 * 100:
+                # #     i = 1
+                # # if area > 200 * 200:
+                # #     i = 2
+                # cv2.ellipse(masks[i], (f_c[0], f_c[1]), (f_s[0], f_s[1]), 0, 0, 360, (255, 255, 255), -1)
+
+            for i, pose_i in enumerate(meta["poses"]):
+                pose = np.array(pose_i)
+                # print(i, pose)
+                f_min = np.minimum(np.maximum(np.min(pose[:5, :], axis=0), 0), [2592, 1944])
+                f_max = np.minimum(np.maximum(np.max(pose[:5, :], axis=0), 0), [2592, 1944])
+                # print(f_min, f_max)
                 f_c = (f_min + f_max) // 2
                 f_s = (f_max - f_min) // 2
                 f_s[0] = np.round(f_s[0] * 1.2)
-                f_s[1] = np.round(f_s[0] * 1.5)
-                # cv2.rectangle(frame, (f_c[0] - f_s[0], f_c[1] - f_s[1]), (f_c[0] + f_s[0], f_c[1] + f_s[1]), (0, 255, 0), 2)
-                # cv2.ellipse(frame, (f_c[0], f_c[1]), (f_s[0], f_s[1]), 0, 0, 360, (0, 255, 0), -1)
-                cv2.ellipse(mask, (f_c[0], f_c[1]), (f_s[0], f_s[1]), 0, 0, 360, (255, 255, 255), -1)
-            idx = np.nonzero(mask)
-            frame[idx] = blurred[idx]
+                f_s[1] = np.round(f_s[1] * 1.5)
+                self._blur_box(frame, f_c, f_s)
+                # # cv2.rectangle(frame, (f_c[0] - f_s[0], f_c[1] - f_s[1]), (f_c[0] + f_s[0], f_c[1] + f_s[1]), (0, 255, 0), 2)
+                # # cv2.ellipse(frame, (f_c[0], f_c[1]), (f_s[0], f_s[1]), 0, 0, 360, (0, 255, 0), -1)
+                # area = f_s[1] * f_s[0]
+                # i = 0
+                # # if area > 100 * 100:
+                # #     i = 1
+                # # if area > 200 * 200:
+                # #     i = 2
+                # cv2.ellipse(masks[i], (f_c[0], f_c[1]), (f_s[0], f_s[1]), 0, 0, 360, (255, 255, 255), -1)
+
+            # for i in range(len(blurred)):
+            #     idx = np.nonzero(masks[i])
+            #     frame[idx] = blurred[i][idx]
 
     def _advance(self):
         ret, new_frame = self.reader.read()
@@ -143,15 +209,21 @@ class SessionReader:
 
 def render_single(path, segments, timing, cam_id, filename, bitrate, use_gpu=0, max_frames=None, overwrite=False):
     full_filename = path + "../" + filename + ".mp4"
+    meta_filename = path + "../" + filename + "_meta.json"
+    poses_filename = path + "../" + filename + "_poses.json"
     if os.path.exists(full_filename) and not overwrite:
         print(full_filename, "already exists. Skipping...")
-        meta_filename = path + "../" + filename + "_meta.json"
         if os.path.exists(meta_filename):
             print("Renaming meta:", meta_filename)
-            os.rename(meta_filename, path + "../" + filename + "_poses.json")
+            os.rename(meta_filename, poses_filename)
         return
 
+    if os.path.exists(poses_filename):
+        print("Removing poses:", poses_filename)
+        os.remove(poses_filename)
+
     reader = SessionReader(path, segments, tolerance=1.1*timing[2], anonymize=True, cam_id=cam_id)
+    # return
     writer = GstVideo(full_filename, 2592, 1944, 1200 / timing[2], format="BGR",
                       bitrate=bitrate, variable=True, codec='h264', gpu=use_gpu)
 
@@ -167,7 +239,10 @@ def render_single(path, segments, timing, cam_id, filename, bitrate, use_gpu=0, 
         writer.write(frame)
         all_metas.append(meta)
 
-    with open(path + "../" + filename + "_poses.json", "w") as f:
+    # with open(path + "../" + filename + "_poses.json", "w") as f:
+    #     json.dump(all_metas, f, indent=None, cls=NumpyEncoder)
+
+    with open(path + "../" + filename + "_people.json", "w") as f:
         json.dump(all_metas, f, indent=None, cls=NumpyEncoder)
 
     with open(path + "../" + filename + ".json", "w") as f:
@@ -387,12 +462,11 @@ def extract_frames_with_poses(filename, start_frame=5000, max_frame=5500):
 
 
 if __name__ == '__main__':
-    pad_mosaic("mosaic_sample.jpg")
+    # pad_mosaic("mosaic_sample.jpg")
     # extract_frames_with_poses('../all_data/dumbo_2/sensor_1/right.mp4', start_frame=0, max_frame=100)
-    extract_frames_with_poses('../all_data/dumbo_2/sensor_1/right.mp4', start_frame=5000, max_frame=5200)
-    extract_frames_with_poses('../all_data/dumbo_2/sensor_4/right.mp4', start_frame=5000, max_frame=5200)
-    exit(0)
-
+    # extract_frames_with_poses('../all_data/dumbo_2/sensor_1/right.mp4', start_frame=5000, max_frame=5200)
+    # extract_frames_with_poses('../all_data/dumbo_2/sensor_4/right.mp4', start_frame=5000, max_frame=5200)
+    # exit(0)
 
     n = 3  # Maximum of n jobs to be scheduled at the same time (limited to 3 per GPU by the driver)
     use_gpu = 0
@@ -404,10 +478,10 @@ if __name__ == '__main__':
     sessions = glob.glob(data_path + "*/")  # glob.glob behaves differently outside of __main__ (i.e. inside functions)
 
     # Single threaded
-    render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=200, prep_jobs_only=False, overwrite=True)
+    # render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=200, prep_jobs_only=False, overwrite=True)
     # Parallel
-    # jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=None, prep_jobs_only=True)
-    # joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
+    jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=None, prep_jobs_only=True, overwrite=True)
+    joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
     # jobs = subsample_all(sessions, num_gpus=2)
 
@@ -415,9 +489,9 @@ if __name__ == '__main__':
     # for session in browse_sessions(sessions):
     #     render_mosaic(session, max_frames=None, save_images=True, save_every=910, use_gpu=use_gpu, overwrite=True)
     # Parallel
-    # jobs = [joblib.delayed(render_mosaic)(session, max_frames=None, save_images=True, use_gpu=use_gpu) for session in browse_sessions(sessions)]
+    jobs = [joblib.delayed(render_mosaic)(session, max_frames=None, save_images=True, use_gpu=use_gpu, overwrite=True) for session in browse_sessions(sessions)]
 
-    # joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
+    joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
     # for session in browse_sessions(sessions):
     #     renders = json.load(open(session + "meta/video_qualities.json", "r"))
