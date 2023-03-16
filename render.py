@@ -311,7 +311,7 @@ def subsample_single(filename, suffix, divider=1, bitrate=DEFAULT_BITRATE, varia
         print(line[:-1])
 
 
-def subsample_all(sessions, num_gpus=2):
+def subsample_all(sessions, num_gpus=2, overwrite=False):
     jobs = []
 
     for session in browse_sessions(sessions):
@@ -331,7 +331,7 @@ def subsample_all(sessions, num_gpus=2):
                 for cam_id in range(2):
                     cam_name = orders["sensor_%d" % (i+1)][cam_id]
                     jobs.append(joblib.delayed(subsample_single)(session + "sensor_%d/" % (i+1) + cam_name + ".mp4", render["suffix"],
-                                                                 divider=render["divider"], bitrate=bitrates[cam_id], gpu=cam_id % num_gpus, overwrite=False))
+                                                                 divider=render["divider"], bitrate=bitrates[cam_id], gpu=cam_id % num_gpus, overwrite=overwrite))
     return jobs
 
 
@@ -480,18 +480,19 @@ if __name__ == '__main__':
     # Single threaded
     # render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=200, prep_jobs_only=False, overwrite=True)
     # Parallel
-    jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=None, prep_jobs_only=True, overwrite=True)
-    joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
+    # jobs = render_all(sessions, use_gpu=use_gpu, skip_cameras=False, max_frames=None, prep_jobs_only=True, overwrite=True)
+    # joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
-    # jobs = subsample_all(sessions, num_gpus=2)
+    jobs = subsample_all(sessions, num_gpus=2, overwrite=True)
+    joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
     # Single threaded
     # for session in browse_sessions(sessions):
     #     render_mosaic(session, max_frames=None, save_images=True, save_every=910, use_gpu=use_gpu, overwrite=True)
     # Parallel
-    jobs = [joblib.delayed(render_mosaic)(session, max_frames=None, save_images=True, use_gpu=use_gpu, overwrite=True) for session in browse_sessions(sessions)]
+    # jobs = [joblib.delayed(render_mosaic)(session, max_frames=None, save_images=True, use_gpu=use_gpu, overwrite=True) for session in browse_sessions(sessions)]
 
-    joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
+    # joblib.Parallel(verbose=15, n_jobs=n, batch_size=n, pre_dispatch=n, backend="multiprocessing")(jobs)
 
     # for session in browse_sessions(sessions):
     #     renders = json.load(open(session + "meta/video_qualities.json", "r"))
