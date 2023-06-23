@@ -5,6 +5,42 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 
+def undistort():
+    imgs, calibs = [], []
+    for sensor in range(1, 5):
+        for side in ["left", "right"]:
+            imgs.append(cv2.imread("sensor%d_%s.png" % (sensor, side)))
+            calibs.append(np.array(json.load(open("./calibration_data/%s_%d.json" % (side, sensor)))["mtx"]))
+
+    K = np.average(np.stack(calibs, axis=0), axis=0)
+    with open("./undistorted/K.json", "w") as f:
+        json.dump({"K": K.tolist()}, f, indent=4)
+    print(K)
+
+    for i, (img, calib) in enumerate(zip(imgs, calibs)):
+        uimg = cv2.undistort(img, calib, None, K, None)
+        cv2.imwrite("./undistorted/%d.png" % i, uimg)
+
+# undistort()
+# exit(0)
+
+
+def triangulate(ps1, K1, ps2, K2, T, R):
+    u_ref_xy = cv2.undistortPoints(ps1.astype(np.float32).reshape((-1, 1, 2)), K1, None).reshape((-1, 2))
+    ref_rays = np.concatenate([u_ref_xy, np.ones((u_ref_xy.shape[0], 1))], axis=1)
+
+    u_sec_xy = cv2.undistortPoints(ps2.astype(np.float32).reshape((-1, 1, 2)), K2, None).reshape((-1, 2))
+    sec_rays = np.concatenate([u_sec_xy, np.ones((u_sec_xy.shape[0], 1))], axis=1)
+
+    sec_rays = np.matmul(R.T, sec_rays.T).T
+
+    v12 = np.sum(np.multiply(ref_rays, sec_rays), axis=1)
+    v1, v2 = np.linalg.norm(ref_rays, axis=1)**2, np.linalg.norm(sec_rays, axis=1)**2
+    L = (np.matmul(ref_rays, T) * v2 + np.matmul(sec_rays, -T) * v12) / (v1 * v2 - v12**2)
+
+    return ref_rays * L[:, None]
+
+
 def line(ax, p1, p2, *args, **kwargs):
     ax.plot(np.array([p1[0], p2[0]]), np.array([p1[2], p2[2]]), np.array([-p1[1], -p2[1]]), *args, **kwargs)
 
@@ -29,19 +65,20 @@ def axis_equal_3d(ax, zoom=1):
         getattr(ax, 'set_{}lim'.format(dim))(ctr - r/zoom, ctr + r/zoom)
 
 
-def plot_3d(R, T, figure_name="3d", title=None, size=(9, 8), axis_equal=True, save_as=None, **kw):
+def plot_3d(R, T, figure_name="3d", title=None, size=(9, 8), axis_equal=True, plot_basis=True, save_as=None, **kw):
     plt.figure(figure_name, size)
     plt.clf()
     ax = plt.subplot(111, projection='3d', proj_type='ortho')
     ax.set_title(title if title else figure_name)
 
-    scatter(ax, np.zeros(3), s=15, **kw)
-    basis(ax, np.zeros(3), np.eye(3))
+    if plot_basis:
+        scatter(ax, np.zeros(3), s=15, **kw)
+        basis(ax, np.zeros(3), np.eye(3))
     # print(T, R)
 
-    ax.set_xlabel("x, mm")
-    ax.set_ylabel("z, mm")
-    ax.set_zlabel("-y, mm")
+    ax.set_xlabel("x")
+    ax.set_ylabel("z")
+    ax.set_zlabel("-y")
     plt.tight_layout()
     # if axis_equal:
     #     axis_equal_3d(ax)
@@ -67,14 +104,25 @@ def drawlines(img1,img2,lines,pts1,pts2):
     return img1, img2
 
 
-path = "./"
-files = ["zebra.json", "random.json", "volume.json"]
-# files = ["random.json"]
+# path = "./"
+# files = ["zebra.json", "random.json", "volume.json"]
+# # files = ["random.json"]
+
+# path = "./chase_2/"
+# files = ["zebra.json", "signs.json", "metro_cafe.json", "garden_middle.json", "cars.json", "chipotle_side.json"]
+
+
+path = "D:/Dropbox/work/cvpr/annotation_files/"
+# files = ["background1_2.json", "building.json", "metal_structure.json", "joao_3x.json", "yurii_3x.json"]
+files = ["background2_3.json", "building_people_2_3.json", "joao_3x.json", "yurii_3x.json"]
+
+# s1, s2 = ("sensor1", "center"), ("sensor2", "center")
+s1, s2 = ("sensor2", "center"), ("sensor3", "center")
 
 # s1, s2 = ("sensor2", "left"), ("sensor1", "left")
 # s1, s2 = ("sensor2", "right"), ("sensor1", "left")
 # s1, s2 = ("sensor2", "left"), ("sensor2", "right")
-s1, s2 = ("sensor1", "left"), ("sensor3", "left")
+# s1, s2 = ("sensor1", "left"), ("sensor3", "left")
 # s1, s2 = ("sensor4", "right"), ("sensor3", "left")
 # s1, s2 = ("sensor3", "left"), ("sensor3", "right")
 # s1, s2 = ("sensor3", "right"), ("sensor3", "left")
@@ -85,29 +133,67 @@ ps1, ps2 = [], []
 for file in files:
     all_annot = json.load(open(path + file))
 
-    for point in all_annot:
-        p1, p2 = None, None
-        
-        for pos in point:
-            if pos["id"] + pos["side"] == s1[0] + s1[1] and pos["x"] is not None:
-                p1 = (pos["x"], pos["y"])
-            if pos["id"] + pos["side"] == s2[0] + s2[1] and pos["x"] is not None:
-                p2 = (pos["x"], pos["y"])
-        
-        if (p1 is not None) and (p2 is not None):
+    g1, g2 = None, None
+    for group in all_annot:
+        if group["id"] == s1[0]:
+            g1 = group["frozenAnnotations"]
+        if group["id"] == s2[0]:
+            g2 = group["frozenAnnotations"]
+        # if group["id"] == s1[0] and group["side"] == s1[1]:
+        #     g1 = group["frozenAnnotations"]
+        # if group["id"] == s2[0] and group["side"] == s2[1]:
+        #     g2 = group["frozenAnnotations"]
+
+    print(g1, "\n", g2)
+    for p1, p2 in zip(g1, g2):
+        if len(p1) == 2 and len(p2) == 2:
             ps1.append(p1)
             ps2.append(p2)
+    # continue
+    # for point in all_annot:
+    #     p1, p2 = None, None
+    #
+    #     for pos in point:
+    #         if pos["id"] + pos["side"] == s1[0] + s1[1] and pos["x"] is not None:
+    #             p1 = (pos["x"], pos["y"])
+    #         if pos["id"] + pos["side"] == s2[0] + s2[1] and pos["x"] is not None:
+    #             p2 = (pos["x"], pos["y"])
+    #
+    #     if (p1 is not None) and (p2 is not None):
+    #         ps1.append(p1)
+    #         ps2.append(p2)
 
 ps1, ps2 = np.array(ps1, dtype=np.float32), np.array(ps2, dtype=np.float32)
 # ps1, ps2 = np.array(ps1, dtype=np.int32), np.array(ps2, dtype=np.int32)
 
-filename_template = "./%s_%s.png"
-img1 = cv2.imread(filename_template % (s1[0], s1[1]))[:, :, ::-1]
-img2 = cv2.imread(filename_template % (s2[0], s2[1]))[:, :, ::-1]
+# filename_template = "./%s_%s.png"
+# img1 = cv2.imread(filename_template % (s1[0], s1[1]))[:, :, ::-1]
+# img2 = cv2.imread(filename_template % (s2[0], s2[1]))[:, :, ::-1]
+#
+# filename_template = "./calibration_data/%s_%s.json"
+# K1 = np.array(json.load(open(filename_template % (s1[1], s1[0][-1])))["mtx"])
+# K2 = np.array(json.load(open(filename_template % (s2[1], s2[0][-1])))["mtx"])
 
-filename_template = "./calibration_data/%s_%s.json"
-K1 = np.array(json.load(open(filename_template % (s1[1], s1[0][-1])))["mtx"])
-K2 = np.array(json.load(open(filename_template % (s2[1], s2[0][-1])))["mtx"])
+# filename_template = "./chase_2/%s_%s.png"
+# img1 = cv2.imread(filename_template % (s1[0], s1[1]))[:, :, ::-1]
+# img2 = cv2.imread(filename_template % (s2[0], s2[1]))[:, :, ::-1]
+#
+# filename_template = "./calibration_data/%s_%s.json"
+# K1 = np.array(json.load(open(filename_template % (s1[1], s1[0][-1])))["mtx"])
+# K2 = np.array(json.load(open(filename_template % (s2[1], s2[0][-1])))["mtx"])
+
+filename_template = "D:/Dropbox/work/cvpr/%s_fscam_frames/undistorted/500.jpg"
+img1 = cv2.imread(filename_template % s1[0][-1])[:, :, ::-1]
+img2 = cv2.imread(filename_template % s2[0][-1])[:, :, ::-1]
+
+filename_template = "D:/Dropbox/work/cvpr/%s_calib_frames/calibrated/geometry.json"
+calib_1 = json.load(open(filename_template % s1[0][-1]))
+calib_2 = json.load(open(filename_template % s1[0][-1]))
+K1 = np.array(calib_1["new_mtx"])
+K2 = np.array(calib_2["new_mtx"])
+
+ps1 = cv2.undistortPoints(ps1, np.array(calib_1["mtx"]), np.array(calib_1["dist"]), P=K1).reshape((-1, 2))
+ps2 = cv2.undistortPoints(ps2, np.array(calib_2["mtx"]), np.array(calib_2["dist"]), P=K2).reshape((-1, 2))
 
 print(K1)
 print(K2)
@@ -152,28 +238,35 @@ print("\n", newE)
 # plt.imshow(mask)
 # plt.tight_layout()
 
-plt.figure("img1", (9, 8))
-plt.imshow(img1l)
-plt.plot(ps1[:, 0], ps1[:, 1], "ro", markersize=10, mfc='none')
-# plt.plot(nps1[:, 0], nps1[:, 1], "g.")
-plt.tight_layout()
+T = -np.matmul(R.T, t).ravel()
+print("\n", T, "\n", R)
 
-plt.figure("img2", (9, 8))
-plt.imshow(img2r)
-plt.plot(ps2[:, 0], ps2[:, 1], "ro", markersize=10, mfc='none')
-# plt.plot(nps2[:, 0], nps2[:, 1], "g.")
-plt.tight_layout()
+plot = True
 
-ax = plot_3d(None, None)
+if plot:
+    plt.figure("img1", (9, 8))
+    plt.imshow(img1l)
+    plt.plot(ps1[:, 0], ps1[:, 1], "ro", markersize=5, mfc='none')
+    # plt.plot(nps1[:, 0], nps1[:, 1], "g.")
+    plt.tight_layout()
 
-c = -np.matmul(R.T, t)
+    plt.figure("img2", (9, 8))
+    plt.imshow(img2r)
+    plt.plot(ps2[:, 0], ps2[:, 1], "ro", markersize=5, mfc='none')
+    # plt.plot(nps2[:, 0], nps2[:, 1], "g.")
+    plt.tight_layout()
 
-basis(ax, c.ravel(), R.T)
-# basis(ax, t.ravel(), R.T)
-# basis(ax, T.ravel(), R1.T)
-# basis(ax, -T.ravel(), R1.T)
-# basis(ax, T.ravel(), R2.T)
-# basis(ax, -T.ravel(), R2.T)
-axis_equal_3d(ax)
+    ax = plot_3d(None, None)
 
-plt.show()
+    p3d = triangulate(ps1, K1, ps2, K2, T, R)
+    scatter(ax, p3d)
+
+    basis(ax, T, R.T)
+    # basis(ax, t.ravel(), R.T)
+    # basis(ax, T.ravel(), R1.T)
+    # basis(ax, -T.ravel(), R1.T)
+    # basis(ax, T.ravel(), R2.T)
+    # basis(ax, -T.ravel(), R2.T)
+    axis_equal_3d(ax)
+
+# plt.show()
