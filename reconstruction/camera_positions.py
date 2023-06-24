@@ -108,18 +108,18 @@ def drawlines(img1,img2,lines,pts1,pts2):
 # files = ["zebra.json", "random.json", "volume.json"]
 # # files = ["random.json"]
 
-# path = "./chase_2/"
-# files = ["zebra.json", "signs.json", "metro_cafe.json", "garden_middle.json", "cars.json", "chipotle_side.json"]
+path = "./chase_2/"
+files = ["zebra.json", "signs.json", "metro_cafe.json", "garden_middle.json", "cars.json", "chipotle_side.json"]
 
 
-path = "D:/Dropbox/work/cvpr/annotation_files/"
+# path = "D:/Dropbox/work/cvpr/annotation_files/"
 # files = ["background1_2.json", "building.json", "metal_structure.json", "joao_3x.json", "yurii_3x.json"]
-files = ["background2_3.json", "building_people_2_3.json", "joao_3x.json", "yurii_3x.json"]
+# files = ["background2_3.json", "building_people_2_3.json", "joao_3x.json", "yurii_3x.json"]
 
 # s1, s2 = ("sensor1", "center"), ("sensor2", "center")
-s1, s2 = ("sensor2", "center"), ("sensor3", "center")
+# s1, s2 = ("sensor2", "center"), ("sensor3", "center")
 
-# s1, s2 = ("sensor2", "left"), ("sensor1", "left")
+s1, s2 = ("sensor2", "left"), ("sensor1", "left")
 # s1, s2 = ("sensor2", "right"), ("sensor1", "left")
 # s1, s2 = ("sensor2", "left"), ("sensor2", "right")
 # s1, s2 = ("sensor1", "left"), ("sensor3", "left")
@@ -135,14 +135,14 @@ for file in files:
 
     g1, g2 = None, None
     for group in all_annot:
-        if group["id"] == s1[0]:
-            g1 = group["frozenAnnotations"]
-        if group["id"] == s2[0]:
-            g2 = group["frozenAnnotations"]
-        # if group["id"] == s1[0] and group["side"] == s1[1]:
+        # if group["id"] == s1[0]:
         #     g1 = group["frozenAnnotations"]
-        # if group["id"] == s2[0] and group["side"] == s2[1]:
+        # if group["id"] == s2[0]:
         #     g2 = group["frozenAnnotations"]
+        if group["id"] == s1[0] and group["side"] == s1[1]:
+            g1 = group["frozenAnnotations"]
+        if group["id"] == s2[0] and group["side"] == s2[1]:
+            g2 = group["frozenAnnotations"]
 
     print(g1, "\n", g2)
     for p1, p2 in zip(g1, g2):
@@ -174,26 +174,26 @@ ps1, ps2 = np.array(ps1, dtype=np.float32), np.array(ps2, dtype=np.float32)
 # K1 = np.array(json.load(open(filename_template % (s1[1], s1[0][-1])))["mtx"])
 # K2 = np.array(json.load(open(filename_template % (s2[1], s2[0][-1])))["mtx"])
 
-# filename_template = "./chase_2/%s_%s.png"
-# img1 = cv2.imread(filename_template % (s1[0], s1[1]))[:, :, ::-1]
-# img2 = cv2.imread(filename_template % (s2[0], s2[1]))[:, :, ::-1]
+filename_template = "./chase_2/%s_%s.png"
+img1 = cv2.imread(filename_template % (s1[0], s1[1]))[:, :, ::-1]
+img2 = cv2.imread(filename_template % (s2[0], s2[1]))[:, :, ::-1]
+
+filename_template = "./calibration_data/%s_%s.json"
+K1 = np.array(json.load(open(filename_template % (s1[1], s1[0][-1])))["mtx"])
+K2 = np.array(json.load(open(filename_template % (s2[1], s2[0][-1])))["mtx"])
+
+# filename_template = "D:/Dropbox/work/cvpr/%s_fscam_frames/undistorted/500.jpg"
+# img1 = cv2.imread(filename_template % s1[0][-1])[:, :, ::-1]
+# img2 = cv2.imread(filename_template % s2[0][-1])[:, :, ::-1]
 #
-# filename_template = "./calibration_data/%s_%s.json"
-# K1 = np.array(json.load(open(filename_template % (s1[1], s1[0][-1])))["mtx"])
-# K2 = np.array(json.load(open(filename_template % (s2[1], s2[0][-1])))["mtx"])
-
-filename_template = "D:/Dropbox/work/cvpr/%s_fscam_frames/undistorted/500.jpg"
-img1 = cv2.imread(filename_template % s1[0][-1])[:, :, ::-1]
-img2 = cv2.imread(filename_template % s2[0][-1])[:, :, ::-1]
-
-filename_template = "D:/Dropbox/work/cvpr/%s_calib_frames/calibrated/geometry.json"
-calib_1 = json.load(open(filename_template % s1[0][-1]))
-calib_2 = json.load(open(filename_template % s1[0][-1]))
-K1 = np.array(calib_1["new_mtx"])
-K2 = np.array(calib_2["new_mtx"])
-
-ps1 = cv2.undistortPoints(ps1, np.array(calib_1["mtx"]), np.array(calib_1["dist"]), P=K1).reshape((-1, 2))
-ps2 = cv2.undistortPoints(ps2, np.array(calib_2["mtx"]), np.array(calib_2["dist"]), P=K2).reshape((-1, 2))
+# filename_template = "D:/Dropbox/work/cvpr/%s_calib_frames/calibrated/geometry.json"
+# calib_1 = json.load(open(filename_template % s1[0][-1]))
+# calib_2 = json.load(open(filename_template % s1[0][-1]))
+# K1 = np.array(calib_1["new_mtx"])
+# K2 = np.array(calib_2["new_mtx"])
+#
+# ps1 = cv2.undistortPoints(ps1, np.array(calib_1["mtx"]), np.array(calib_1["dist"]), P=K1).reshape((-1, 2))
+# ps2 = cv2.undistortPoints(ps2, np.array(calib_2["mtx"]), np.array(calib_2["dist"]), P=K2).reshape((-1, 2))
 
 print(K1)
 print(K2)
@@ -241,7 +241,7 @@ print("\n", newE)
 T = -np.matmul(R.T, t).ravel()
 print("\n", T, "\n", R)
 
-plot = True
+plot = False
 
 if plot:
     plt.figure("img1", (9, 8))
@@ -269,4 +269,4 @@ if plot:
     # basis(ax, -T.ravel(), R2.T)
     axis_equal_3d(ax)
 
-# plt.show()
+    plt.show()
