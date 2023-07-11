@@ -17,6 +17,7 @@ results/occupancy_ss3_s4_right
 reconstruction/sfm/
 reconstruction/undistorted/
 *.mp4
+*_people.json
 
 # C extensions
 *.so

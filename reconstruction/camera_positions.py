@@ -57,7 +57,7 @@ def scatter(ax, p, *args, **kwargs):
 
 def axis_equal_3d(ax, zoom=1):
     extents = np.array([getattr(ax, 'get_{}lim'.format(dim))() for dim in 'xyz'])
-    sz = extents[:,1] - extents[:,0]
+    sz = extents[:, 1] - extents[:, 0]
     centers = np.mean(extents, axis=1)
     maxsize = max(abs(sz))
     r = maxsize/2
