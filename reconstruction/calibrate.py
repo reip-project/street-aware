@@ -1,3 +1,4 @@
+import utils
 from utils import *
 
 sensors = [1, 2, 3, 4]
@@ -26,7 +27,7 @@ def load_people(filename, frame_ids=None):
 
 def load_data(data_path, data=None, calib_path=None, frame_ids=None):
     data = data or {s: {c: {} for c in cameras} for s in sensors}
-    print("frame_ids:", frame_ids)
+    print("frame_ids:", frame_ids, "\n")
 
     for s in sensors:
         for c in cameras:
@@ -38,7 +39,7 @@ def load_data(data_path, data=None, calib_path=None, frame_ids=None):
                 data[s][c]["K"] = np.array(calib["mtx"])
 
                 pos = json.load(open(calib_path + "positions_%d.json" % s))
-                data[s][c]["box_T"] = np.array(pos[c]["cam_T"])
+                data[s][c]["box_T"] = np.array(pos[c]["cam_T"]) / 1000.0
                 data[s][c]["box_R"] = np.array(pos[c]["cam_R"])
 
     return data
@@ -109,43 +110,212 @@ def preview(data, views, annot, view_id=0, frame_id=11200):
     plt.tight_layout()
 
 
-if __name__ == '__main__':
-    data_path = './chase_1/'
+def reconstruct_pair(data, files, views, plot=False):
+    assert len(views) == 2
 
-    files = [file for file in glob.glob(data_path + "*.json") if "poses" in file or "points" in file]
-    frame_ids = sorted(list({json.load(open(file))["points"]["frame-number"] for file in files}))
+    annot = load_annotations(files, views=views, data=data)
 
-    data = load_data(data_path, calib_path='./calibration_data/', frame_ids=frame_ids)
+    ps1, ps2 = annot[:, 0, :], annot[:, 1, :]
+    K1, K2 = data[views[0][0]][views[0][1]]["K"], data[views[1][0]][views[1][1]]["K"]
+    img1, img2 = data[views[0][0]][views[0][1]]["img"], data[views[1][0]][views[1][1]]["img"]
 
-    # Metro
-    views = [(3, "left"), (4, "right")]
-    # views = [(3, "right"), (4, "right")]  # blur
+    T, R, mask = find_relative(ps1, K1, ps2, K2, thr=1.5, img1=img1, img2=img2, plot=plot, every=5)
+    p3d = triangulate_relative(ps1, K1, ps2, K2, T, R)
 
-    # Chase
-    # views = [(2, "left"), (1, "left")]
-    # views = [(2, "right"), (1, "left")]  # tilt
+    if plot:
+        ax = plot_3d("Reconstruction", plot_basis=True)
+        basis(ax, T, R)
+        scatter(ax, p3d[mask])
+        scatter(ax, p3d, "b", s=2)
+        axis_equal_3d(ax)
 
-    # Across
-    # views = [(3, "right"), (1, "left")]  # worse
-    # views = [(3, "left"), (1, "left")]
-    # views = [(4, "right"), (2, "right")]
-    # views = [(4, "right"), (2, "left")]  # worse
+    return T, R
+
+
+def triangulate_pair(data, annot, views, view_ids, T, R, plot=False):
+    v0, v1 = view_ids
+    ps1, ps2 = annot[:, v0, :], annot[:, v1, :]
+    cam1, cam2 = data[views[v0][0]][views[v0][1]], data[views[v1][0]][views[v1][1]]
+
+    p3d = triangulate_relative(ps1, cam1["K"], ps2, cam2["K"], T, R)
+
+    if plot:
+        ax = plot_3d("Triangulation", plot_basis=True)
+        basis(ax, T, R)
+        scatter(ax, p3d)
+        axis_equal_3d(ax)
+
+    return p3d, cam1, cam2, ax if plot else None
+
+
+def explore_pair(data, files, side="across"):
+    if side == "chase":
+        views = [(2, "left"), (1, "left")]
+        # views = [(2, "right"), (1, "left")]  # tilt
+
+    if side == "metro":
+        views = [(3, "left"), (4, "right")]
+        # views = [(3, "right"), (4, "right")]  # blur
+
+    if side == "across":
+        views = [(3, "left"), (1, "left")]
+        # views = [(3, "right"), (1, "left")]  # worse
+
+    if side == "across_2":
+        views = [(4, "right"), (2, "right")]
+        # views = [(4, "right"), (2, "left")]  # worse
 
     annot = load_annotations(files, views=views, data=data)
     print("annot:", annot.shape)
 
     preview(data, views, annot, view_id=0, frame_id=11200)
 
-    ps1, ps2 = annot[:, 0, :], annot[:, 1, :]
-    K1, K2 = data[views[0][0]][views[0][1]]["K"], data[views[1][0]][views[1][1]]["K"]
-    img1, img2 = data[views[0][0]][views[0][1]]["img"], data[views[1][0]][views[1][1]]["img"]
+    reconstruct_pair(data, files, views, plot=True)
 
-    T, R = find_relative(ps1, K1, ps2, K2, thr=1.5, img1=img1, img2=img2, plot=True, every=5)
-    p3d = triangulate_relative(ps1, K1, ps2, K2, T, R)
 
-    ax = plot_3d("Reconstruction", plot_basis=True)
-    basis(ax, T, R)
-    scatter(ax, p3d)
-    axis_equal_3d(ax)
+def calibrate_pair(data, files, side, calib_file, scale_file, plot=False):
+    calib_views = [(2, "left"), (1, "left"), (3, "left"), (4, "right"), (2, "right")]
+    calib_annot = load_annotations([calib_file], views=calib_views, data=data)
+    print("calib_annot:", calib_annot.shape)
+
+    if side == "chase":
+        view_ids = [0, 1]
+    if side == "metro":
+        view_ids = [2, 3]
+    if side == "across":
+        view_ids = [2, 1]
+    if side == "across_2":
+        view_ids = [3, 4]
+
+    views = [calib_views[i] for i in view_ids]
+
+    if plot:
+        preview(data, calib_views, calib_annot, view_id=view_ids[0], frame_id=11200)
+
+    # Cam2 in Cam1's frame of reference
+    T, R = reconstruct_pair(data, files, views, plot=False)
+
+    p3d, cam1, cam2, ax = triangulate_pair(data, calib_annot, calib_views, view_ids, T, R, plot=plot)
+
+    # Recover the basis
+    pca = PCA(n_components=3)
+    p2 = pca.fit_transform(p3d)
+    W_T, W_R = pca.mean_, pca.components_
+
+    # Ensure Z is up
+    if np.dot(np.array([0, 0, 1]), W_R[2, :]) > 0:
+        W_R[2, :] = -W_R[2, :]
+
+    # Y along the zebra lines
+    y = np.average(p3d[1::2, :], axis=0) - np.average(p3d[::2, :], axis=0)
+    y -= W_R[2, :] * np.dot(W_R[2, :], y)
+    W_R[1, :] = y / np.linalg.norm(y)
+
+    # Force right handedness
+    W_R[0, :] = np.cross(W_R[1, :], W_R[2, :])
+
+    # World in Cam1's frame of reference
+    if plot:
+        utils.plot(ax, p3d, ":")
+        basis(ax, W_T, W_R)
+
+    # Recover the scale
+    ref_scales = np.array(json.load(open(scale_file)))
+    ref_scales = np.repeat(ref_scales, 2) * 0.0254
+    scales = np.linalg.norm(p3d[1::2, :] - p3d[::2, :], axis=1)
+    factor = np.average(ref_scales / scales)
+    print("Scale:", factor, "\n")
+
+    # Apply scaling
+    T, W_T = T * factor, W_T * factor
+
+    # Place Cam1 in World's frame of reference
+    T1, R1 = np.matmul(W_R, -W_T).ravel(), W_R.T
+
+    # Place Cam2 in World's frame of reference
+    T2 = np.matmul(W_R, -(W_T - T)).ravel()
+    R2 = np.matmul(W_R, R.T).T
+
+    calibs = [(*views[0], T1, R1, cam1["K"]), (*views[1], T2, R2, cam2["K"])]
+    calibs.extend([second_eye(data, calib) for calib in calibs])
+
+    return calibs
+
+
+def second_eye(data, calib):
+    s, c, T, R, K = calib
+    assert len(cameras) == 2
+    c2 = cameras[0] if c == cameras[1] else cameras[1]
+
+    cam1, cam2 = data[s][c], data[s][c2]
+
+    # Place Cam2 in Cam1's frame of reference
+    dT = np.matmul(cam1["box_R"], cam2["box_T"] - cam1["box_T"]).ravel()
+    dR = np.matmul(cam1["box_R"], cam2["box_R"].T).T
+
+    # Place Cam2 in World's frame of reference
+    T2 = T + np.matmul(R.T, dT).ravel()
+    R2 = np.matmul(R.T, dR.T).T
+
+    return (s, c2, T2, R2, cam2["K"])
+
+
+def calibrate_all(data, all_files, sides, calib_file, scale_file, plot=True):
+    calibs = []
+
+    for side in sides:
+        calibs.extend(calibrate_pair(data, all_files, side, calib_file, scale_file))
+
+    if plot:
+        ax = plot_3d("Calibration", plot_basis=False)
+        basis(ax, np.zeros(3), np.eye(3), length=3)
+
+        for s, c, T, R, K in calibs:
+            utils.plot(ax, np.array([[0, 0, 0], [T[0], T[1], 0], T]), "k--")
+            basis(ax, T, R, length=1)
+
+        utils.plot(ax, np.array([[5, 2, 0], [-5, 2, 0], [-5, -2, 0], [5, -2, 0], [5, 2, 0]]))
+        axis_equal_3d(ax)
+
+    return calibs
+
+
+def position_errors(calibs):
+    errors = []
+    for i, calib in enumerate(calibs):
+        s, c, T, R, K = calib
+        for j, calib2 in enumerate(calibs):
+            s2, c2, T2, R2, K2 = calib2
+            if j > i and i != j and s == s2 and c == c2:
+                errors.append((s, c, np.linalg.norm(T-T2)))
+
+    if len(errors) > 0:
+        print("Average position error:", np.average([err[2] for err in errors]), "meters")
+        [print(" ", err) for err in errors]
+
+
+if __name__ == '__main__':
+    data_path = './chase_1/'
+    calib_file, scale_file = data_path + "calib_11200.json", data_path + "calib_scale.json"
+
+    all_files = [file for file in glob.glob(data_path + "*.json") if "poses" in file or "points" in file]
+    frame_ids = sorted(list({json.load(open(file))["points"]["frame-number"] for file in all_files}))
+
+    data = load_data(data_path, calib_path='./calibration_data/', frame_ids=frame_ids)
+
+    sides, side_id = ["chase", "metro", "across", "across_2"], 3
+
+    # explore_pair(data, all_files, sides[side_id])
+    # calibrate_pair(data, all_files, sides[side_id], calib_file, scale_file, plot=True)
+
+    utils.UP_AXIS = "Z"
+
+    calibs = calibrate_all(data, all_files, ["chase", "metro"], calib_file, scale_file)
+    # calibs = calibrate_all(data, all_files, sides, calib_file, scale_file)
+    # position_errors(calibs)
+
+    with open(data_path + "calibration.json", "w") as f:
+        json.dump(calibs, f, indent=4, cls=NumpyEncoder)
+        plt.savefig(data_path + "calibration.png", dpi=200)
 
     plt.show()

@@ -5,6 +5,7 @@ import glob
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
 from scipy import optimize
 
 SKELETON = [[1, 3], [1, 0], [2, 4], [2, 0], [0, 5], [0, 6], [5, 7], [7, 9], [6, 8], [8, 10], [5, 11], [6, 12],
@@ -15,6 +16,19 @@ CocoColors = [[255, 0, 0], [255, 85, 0], [255, 170, 0], [255, 255, 0], [170, 255
               [170, 0, 255], [255, 0, 255], [255, 0, 170], [255, 0, 85]]
 
 NUM_KPTS = 17
+UP_AXIS = "Y"
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """ Special json encoder for numpy types """
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
 
 
 def draw_pose_2d(keypoints, img, small=False):
@@ -57,8 +71,18 @@ def draw_epipolar(img1, img2, lines, pts1, pts2, colors=None, every=1):
     return img1, img2
 
 
+def plot(ax, p, *args, **kwargs):
+    if UP_AXIS == "Y":
+        ax.plot(p[:, 0], p[:, 2], -p[:, 1], *args, **kwargs)
+    else:
+        ax.plot(p[:, 0], p[:, 1], p[:, 2], *args, **kwargs)
+
+
 def line(ax, p1, p2, *args, **kwargs):
-    ax.plot(np.array([p1[0], p2[0]]), np.array([p1[2], p2[2]]), np.array([-p1[1], -p2[1]]), *args, **kwargs)
+    if UP_AXIS == "Y":
+        ax.plot(np.array([p1[0], p2[0]]), np.array([p1[2], p2[2]]), np.array([-p1[1], -p2[1]]), *args, **kwargs)
+    else:
+        ax.plot(np.array([p1[0], p2[0]]), np.array([p1[1], p2[1]]), np.array([p1[2], p2[2]]), *args, **kwargs)
 
 
 def basis(ax, T, R, *args, length=0.25, **kwargs):
@@ -68,10 +92,16 @@ def basis(ax, T, R, *args, length=0.25, **kwargs):
 
 
 def scatter(ax, p, *args, **kwargs):
-    if len(p.shape) > 1:
-        ax.scatter(p[:, 0], p[:, 2], -p[:, 1], *args, **kwargs)
+    if UP_AXIS == "Y":
+        if len(p.shape) > 1:
+            ax.scatter(p[:, 0], p[:, 2], -p[:, 1], *args, **kwargs)
+        else:
+            ax.scatter(p[0], p[2], -p[1], **kwargs)
     else:
-        ax.scatter(p[0], p[2], -p[1], **kwargs)
+        if len(p.shape) > 1:
+            ax.scatter(p[:, 0], p[:, 1], p[:, 2], *args, **kwargs)
+        else:
+            ax.scatter(p[0], p[1], p[2], **kwargs)
 
 
 def plot_3d(figure_name="3d", size=(9, 8), title=None, plot_basis=False):
@@ -81,12 +111,18 @@ def plot_3d(figure_name="3d", size=(9, 8), title=None, plot_basis=False):
     ax.set_title(title if title else figure_name)
 
     if plot_basis:
-        scatter(ax, np.zeros(3), s=15)
+        scatter(ax, np.zeros(3), s=16)
         basis(ax, np.zeros(3), np.eye(3))
 
-    ax.set_xlabel("x")
-    ax.set_ylabel("z")
-    ax.set_zlabel("-y")
+    if UP_AXIS == "Y":
+        ax.set_xlabel("x")
+        ax.set_ylabel("z")
+        ax.set_zlabel("-y")
+    else:
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_zlabel("z")
+
     plt.tight_layout()
 
     return ax
@@ -100,6 +136,7 @@ def axis_equal_3d(ax, zoom=1):
     r = maxsize/2
     for ctr, dim in zip(centers, 'xyz'):
         getattr(ax, 'set_{}lim'.format(dim))(ctr - r/zoom, ctr + r/zoom)
+    plt.tight_layout()
 
 
 def img_to_ray(ps, K):
@@ -120,13 +157,14 @@ def triangulate_relative(ps1, K1, ps2, K2, T, R):
 
 def find_relative(ps1, K1, ps2, K2, thr=5, img1=None, img2=None, plot=False, every=2):
     F, mask = cv2.findFundamentalMat(ps1, ps2, cv2.FM_RANSAC, thr, confidence=0.999, maxIters=1000)
-    nps1, nps2 = ps1[mask.ravel() == 1], ps2[mask.ravel() == 1]
+    mask = mask.ravel() == 1
+    nps1, nps2 = ps1[mask], ps2[mask]
     print(nps1.shape[0], "of", ps1.shape[0])
 
     E = np.matmul(K2.T, np.matmul(F, K1))
     retval, R, t, mask2 = cv2.recoverPose(E, nps1, nps2, (K1 + K2) / 2)
-    T = -np.matmul(R.T, t).ravel()
-    print("T:\n", T, "\nR:\n", R)
+    T = np.matmul(R.T, -t).ravel()
+    # print("T:\n", T, "\nR:\n", R)
 
     if img1 is not None and img2 is not None:
         lines1 = cv2.computeCorrespondEpilines(nps2.reshape(-1, 1, 2), 2, F)
@@ -144,4 +182,4 @@ def find_relative(ps1, K1, ps2, K2, thr=5, img1=None, img2=None, plot=False, eve
             plt.imshow(img2)
             plt.tight_layout()
 
-    return T, R
+    return T, R, mask
