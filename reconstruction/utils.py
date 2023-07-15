@@ -39,18 +39,11 @@ def draw_pose_2d(keypoints, img, small=False):
         x_a, y_a = keypoints[kpt_a][0], keypoints[kpt_a][1]
         x_b, y_b = keypoints[kpt_b][0], keypoints[kpt_b][1]
 
-        cv2.circle(img, (int(x_a), int(y_a)), 3 if small else 5, CocoColors[i], -1)
-        cv2.circle(img, (int(x_b), int(y_b)), 3 if small else 5, CocoColors[i], -1)
-        cv2.line(img, (int(x_a), int(y_a)), (int(x_b), int(y_b)), CocoColors[i], 1 if small else 3)
+        cv2.circle(img, (int(x_a), int(y_a)), 5 if small else 7, CocoColors[i], -1)
+        cv2.circle(img, (int(x_b), int(y_b)), 5 if small else 7, CocoColors[i], -1)
+        cv2.line(img, (int(x_a), int(y_a)), (int(x_b), int(y_b)), CocoColors[i], 2 if small else 3)
 
     return img
-
-
-def draw_3d_pose(ax, keypoints):
-    assert keypoints.shape == (NUM_KPTS, 3)
-    for i in range(len(SKELETON)):
-        kpt_a, kpt_b = SKELETON[i][0], SKELETON[i][1]
-        line(ax, keypoints[kpt_a][:], keypoints[kpt_b][:])
 
 
 # img1 - image on which we draw the epilines for the points in img2 lines - corresponding epilines
@@ -73,9 +66,15 @@ def draw_epipolar(img1, img2, lines, pts1, pts2, colors=None, every=1):
 
 def plot(ax, p, *args, **kwargs):
     if UP_AXIS == "Y":
-        ax.plot(p[:, 0], p[:, 2], -p[:, 1], *args, **kwargs)
+        if len(p.shape) > 1:
+            ax.plot(p[:, 0], p[:, 2], -p[:, 1], *args, **kwargs)
+        else:
+            ax.plot(p[0], p[2], -p[1], *args, **kwargs)
     else:
-        ax.plot(p[:, 0], p[:, 1], p[:, 2], *args, **kwargs)
+        if len(p.shape) > 1:
+            ax.plot(p[:, 0], p[:, 1], p[:, 2], *args, **kwargs)
+        else:
+            ax.plot(p[0], p[1], p[2], *args, **kwargs)
 
 
 def line(ax, p1, p2, *args, **kwargs):
@@ -104,7 +103,14 @@ def scatter(ax, p, *args, **kwargs):
             ax.scatter(p[0], p[1], p[2], **kwargs)
 
 
-def plot_3d(figure_name="3d", size=(9, 8), title=None, plot_basis=False):
+def plot_3d_pose(ax, keypoints):
+    assert keypoints.shape == (NUM_KPTS, 3)
+    for i in range(len(SKELETON)):
+        kpt_a, kpt_b = SKELETON[i][0], SKELETON[i][1]
+        line(ax, keypoints[kpt_a][:], keypoints[kpt_b][:])
+
+
+def plot_3d(figure_name="3d", size=(10, 9), title=None, plot_basis=False):
     plt.figure(figure_name, size)
     plt.clf()
     ax = plt.subplot(111, projection='3d', proj_type='ortho')
@@ -183,3 +189,68 @@ def find_relative(ps1, K1, ps2, K2, thr=5, img1=None, img2=None, plot=False, eve
             plt.tight_layout()
 
     return T, R, mask
+
+
+# ps = [np.array([x, y, x]), ...] in crosswalk's coordinate system
+# dirs = [np.array([nx, ny, nx]), ...] in crosswalk's coordinate system (norm(dirs[i]) == 1)
+def intersect_lines(ps, dirs):
+    As = [np.outer(d, d) - np.eye(3) for d in dirs]
+    Bs = [np.matmul(A, p).ravel() for A, p in zip(As, ps)]
+
+    A = np.sum(np.stack(As, axis=2), axis=2)
+    B = np.sum(np.stack(Bs, axis=1), axis=1)
+
+    return np.linalg.inv(A) @ B
+
+
+# points[view_id, :] = np.array([x, y]) in corresponding camera/view's image
+# views = [(1, "left"), (2, "right), ...] counting sensors starting from 1
+# calibs[sensor][camera] = {"K": np.array, ...} obtained using calibrate.load_calibs(filename)
+def triangulate_multiview(points, views, calibs):
+    ps, dirs = [], []
+
+    for i, view in enumerate(views):
+        calib = calibs[view[0]][view[1]]
+        r = img_to_ray(points[i, :], calib["K"]).ravel()
+        r /= np.linalg.norm(r)
+        r = np.matmul(calib["R"].T, r).ravel()
+        ps.append(calib["T"])
+        dirs.append(r)
+
+    return intersect_lines(ps, dirs)
+
+
+# annot[point_id, view_id, :] = np.array([x, y]) in corresponding camera/view's image
+# views = [(1, "left"), (2, "right), ...] counting sensors starting from 1
+# calibs[sensor][camera] = {"K": np.array, ...} obtained using calibrate.load_calibs(filename)
+def triangulate_multiview_many(annot, views, calibs):
+    return np.array([triangulate_multiview(annot[i, :, :], views, calibs) for i in range(annot.shape[0])])
+
+
+# p = np.array([x, y, x]) in crosswalk's coordinate system
+def project_point(p, calib):
+    r = p - calib["T"]
+    r = np.matmul(calib["R"], r)
+    r /= r[2]
+    return np.matmul(calib["K"], r)[:2]
+
+
+def locate_audio(ps, ts, p_guess=None):
+    def loss(x):
+        p, t = x[:3], x[3]
+        dl = np.linalg.norm(ps - p[None, :], axis=1)
+        dt = np.abs(ts - t) / 48000
+        d = dl - dt * 343
+        return np.sum(d*d)
+
+    tm = np.min(ts)
+    t0 = tm - 500
+    p0 = np.average(ps, axis=0) if p_guess is None else p_guess
+    print("\n", p0, tm)
+
+    bbox = [(-10, 10), (-10, 10), (-5, 5)]
+    res = optimize.minimize(loss, np.concatenate([p0, [t0]]), bounds=[*bbox, (tm - 10_000, tm)])
+    print(res["success"], res["x"], res["x"][3] - tm, res["x"][2] - p0[2])
+
+    return res["x"], res["success"]
+

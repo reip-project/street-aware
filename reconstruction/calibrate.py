@@ -26,7 +26,7 @@ def load_people(filename, frame_ids=None):
 
 
 def load_data(data_path, data=None, calib_path=None, frame_ids=None):
-    data = data or {s: {c: {} for c in cameras} for s in sensors}
+    data = data or {s: {c: {} for c in [*cameras, "array"]} for s in sensors}
     print("frame_ids:", frame_ids, "\n")
 
     for s in sensors:
@@ -42,10 +42,14 @@ def load_data(data_path, data=None, calib_path=None, frame_ids=None):
                 data[s][c]["box_T"] = np.array(pos[c]["cam_T"]) / 1000.0
                 data[s][c]["box_R"] = np.array(pos[c]["cam_R"])
 
+                if c == cameras[0]:
+                    data[s]["array"]["step"] = [pos["array"][a + "_stride"] / 1000.0 for a in ["x", "y"]]
+                    data[s]["array"]["size"] = [pos["array"]["num_" + a] for a in ["x", "y"]]
+
     return data
 
 
-def load_annotations(files, views=None, data=None):
+def load_annotations(files, views=None, data=None, all_joints=False):
     views = views or [(sensor, camera) for sensor in sensors for camera in cameras]
     print("views:", views)
     all_annot = []
@@ -68,8 +72,10 @@ def load_annotations(files, views=None, data=None):
                 all_annot.append(annot)
 
         # Poses
-        # joints = list(range(len(SKELETON)))
         joints = [5, 7, 6, 8, 11, 13, 12, 14]  # hips, shoulders, knees, and elbows
+        if all_joints:
+            joints = list(range(len(SKELETON)))
+
         for i in range(len(raw["boxes"][0]["aligned-boxes"])):
             if data is None:
                 break
@@ -104,7 +110,7 @@ def preview(data, views, annot, view_id=0, frame_id=11200):
         if len(poses.shape) > 1:
             draw_pose_2d(poses[0, ...], img, small=True)
 
-    plt.figure("Preview", (13, 10))
+    plt.figure("Preview", (12, 9))
     plt.imshow(img)
     plt.plot(annot[:, view_id, 0], annot[:, view_id, 1], "r.")
     plt.tight_layout()
@@ -237,7 +243,9 @@ def calibrate_pair(data, files, side, calib_file, scale_file, plot=False):
     R2 = np.matmul(W_R, R.T).T
 
     calibs = [(*views[0], T1, R1, cam1["K"]), (*views[1], T2, R2, cam2["K"])]
-    calibs.extend([second_eye(data, calib) for calib in calibs])
+    ref_calibs = calibs.copy()  # avoid duplicate array entries
+    calibs.extend([second_eye(data, calib) for calib in ref_calibs])
+    calibs.extend([mic_array(data, calib) for calib in ref_calibs])
 
     return calibs
 
@@ -257,7 +265,21 @@ def second_eye(data, calib):
     T2 = T + np.matmul(R.T, dT).ravel()
     R2 = np.matmul(R.T, dR.T).T
 
-    return (s, c2, T2, R2, cam2["K"])
+    return s, c2, T2, R2, cam2["K"]
+
+
+def mic_array(data, calib):
+    s, c, T, R, K = calib
+    cT, cR = data[s][c]["box_T"], data[s][c]["box_R"]
+
+    # Place Array in Cam1's frame of reference
+    aT, aR = np.matmul(cR, -cT).ravel(), cR.T
+
+    # Place Array in World's frame of reference
+    T_A = T + np.matmul(R.T, aT).ravel()
+    R_A = np.matmul(R.T, aR.T).T
+
+    return s, "array", T_A, R_A, (*data[s]["array"]["size"], *data[s]["array"]["step"])
 
 
 def calibrate_all(data, all_files, sides, calib_file, scale_file, plot=True):
@@ -272,7 +294,7 @@ def calibrate_all(data, all_files, sides, calib_file, scale_file, plot=True):
 
         for s, c, T, R, K in calibs:
             utils.plot(ax, np.array([[0, 0, 0], [T[0], T[1], 0], T]), "k--")
-            basis(ax, T, R, length=1)
+            basis(ax, T, R, length=1.5 if c == "array" else 1)
 
         utils.plot(ax, np.array([[5, 2, 0], [-5, 2, 0], [-5, -2, 0], [5, -2, 0], [5, 2, 0]]))
         axis_equal_3d(ax)
@@ -294,26 +316,43 @@ def position_errors(calibs):
         [print(" ", err) for err in errors]
 
 
+def load_calibs(filename):
+    calibs = {s: {c: {} for c in [*cameras, "array"]} for s in sensors}
+
+    for calib in json.load(open(filename)):
+        s, c = calib[:2]
+        calibs[s][c]["T"] = np.array(calib[2])
+        calibs[s][c]["R"] = np.array(calib[3])
+
+        if c == "array":
+            calibs[s][c]["dims"] = calib[4]
+        else:
+            calibs[s][c]["K"] = np.array(calib[4])
+
+    return calibs
+
+
 if __name__ == '__main__':
     data_path = './chase_1/'
     calib_file, scale_file = data_path + "calib_11200.json", data_path + "calib_scale.json"
 
     all_files = [file for file in glob.glob(data_path + "*.json") if "poses" in file or "points" in file]
     frame_ids = sorted(list({json.load(open(file))["points"]["frame-number"] for file in all_files}))
+    frame_ids.extend(list(range(11600, 11621)))  # cache event poses as well
 
     data = load_data(data_path, calib_path='./calibration_data/', frame_ids=frame_ids)
 
-    sides, side_id = ["chase", "metro", "across", "across_2"], 3
+    sides, side_id = ["chase", "metro", "across", "across_2"], 2
 
     # explore_pair(data, all_files, sides[side_id])
     # calibrate_pair(data, all_files, sides[side_id], calib_file, scale_file, plot=True)
 
     utils.UP_AXIS = "Z"
 
-    calibs = calibrate_all(data, all_files, ["chase", "metro"], calib_file, scale_file)
     # calibs = calibrate_all(data, all_files, sides, calib_file, scale_file)
     # position_errors(calibs)
 
+    calibs = calibrate_all(data, all_files, ["chase", "metro"], calib_file, scale_file)
     with open(data_path + "calibration.json", "w") as f:
         json.dump(calibs, f, indent=4, cls=NumpyEncoder)
         plt.savefig(data_path + "calibration.png", dpi=200)
