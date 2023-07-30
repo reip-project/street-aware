@@ -190,10 +190,19 @@ def find_relative(ps1, K1, ps2, K2, thr=5, img1=None, img2=None, plot=False, eve
 
     return T, R, mask
 
+# ps = [np.array([x, y, x]), ...] in crosswalk's coordinate system
+# dirs = [np.array([nx, ny, nx]), ...] in crosswalk's coordinate system (norm(dirs[i]) == 1)
+# O = np.array([x, y, x]) - point on a plane
+# n = np.array([nx, ny, nx]) - plane's normal (norm(n) == 1)
+def intersect_plane(ps, dirs, O, n):
+    xs = [p + d * np.dot(n, O - p) / np.dot(n, d) for p, d in zip(ps, dirs)]
+    return np.average(np.array(xs), axis=0)
+
 
 # ps = [np.array([x, y, x]), ...] in crosswalk's coordinate system
 # dirs = [np.array([nx, ny, nx]), ...] in crosswalk's coordinate system (norm(dirs[i]) == 1)
 def intersect_lines(ps, dirs):
+    assert len(ps) > 1, "Need at least 2 lines to triangulate without an auxiliary plane"
     As = [np.outer(d, d) - np.eye(3) for d in dirs]
     Bs = [np.matmul(A, p).ravel() for A, p in zip(As, ps)]
 
@@ -206,7 +215,7 @@ def intersect_lines(ps, dirs):
 # points[view_id, :] = np.array([x, y]) in corresponding camera/view's image
 # views = [(1, "left"), (2, "right), ...] counting sensors starting from 1
 # calibs[sensor][camera] = {"K": np.array, ...} obtained using calibrate.load_calibs(filename)
-def triangulate_multiview(points, views, calibs):
+def triangulate_multiview(points, views, calibs, O=None, n=None):
     ps, dirs = [], []
 
     for i, view in enumerate(views):
@@ -217,14 +226,17 @@ def triangulate_multiview(points, views, calibs):
         ps.append(calib["T"])
         dirs.append(r)
 
-    return intersect_lines(ps, dirs)
+    if O is not None and n is not None:
+        return intersect_plane(ps, dirs, O, n)
+    else:
+        return intersect_lines(ps, dirs)
 
 
 # annot[point_id, view_id, :] = np.array([x, y]) in corresponding camera/view's image
 # views = [(1, "left"), (2, "right), ...] counting sensors starting from 1
 # calibs[sensor][camera] = {"K": np.array, ...} obtained using calibrate.load_calibs(filename)
-def triangulate_multiview_many(annot, views, calibs):
-    return np.array([triangulate_multiview(annot[i, :, :], views, calibs) for i in range(annot.shape[0])])
+def triangulate_multiview_many(annot, views, calibs, **kw):
+    return np.array([triangulate_multiview(annot[i, :, :], views, calibs, **kw) for i in range(annot.shape[0])])
 
 
 # p = np.array([x, y, x]) in crosswalk's coordinate system
@@ -246,11 +258,11 @@ def locate_audio(ps, ts, p_guess=None):
     tm = np.min(ts)
     t0 = tm - 500
     p0 = np.average(ps, axis=0) if p_guess is None else p_guess
-    print("\n", p0, tm)
+    print("\nStart localization: ", p0, tm)
 
     bbox = [(-10, 10), (-10, 10), (-5, 5)]
     res = optimize.minimize(loss, np.concatenate([p0, [t0]]), bounds=[*bbox, (tm - 10_000, tm)])
-    print(res["success"], res["x"], res["x"][3] - tm, res["x"][2] - p0[2])
+    print("Success =", res["success"], res["x"], res["x"][3] - tm, res["x"][2] - p0[2], "\n")
 
     return res["x"], res["success"]
 

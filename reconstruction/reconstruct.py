@@ -9,10 +9,12 @@ if __name__ == '__main__':
     calibs = load_calibs(data_path + "calibration.json")
 
     files = [file for file in glob.glob(data_path + "*.json") if "11200" in file]
+    ground_files = [f for f in files if "polls" not in f and "back" not in f]
     views = [(2, "left"), (1, "left"), (3, "left"), (4, "right"), (2, "right")]
 
     data = load_data(data_path, frame_ids=[event_frame])
     world_annot = load_annotations(files, views=views, data=data)
+    ground_annot = load_annotations(ground_files, views=views, data=data)
     event_filename = data_path + "event_%d_poses.json" % event_frame
     event_annot = load_annotations([event_filename], views=views, data=data, all_joints=True)
     event_times = np.array(json.load(open(data_path + "event_11602_times.json")))
@@ -50,39 +52,61 @@ if __name__ == '__main__':
     dirs = [data[s]["dir"] for s in sensors]
 
     O = intersect_lines(ps, dirs)
-    utils.plot(ax, O, "g*", markersize=9)
+    utils.plot(ax, O, "g*", markersize=9, label="Beam forming")
 
     ps = np.concatenate([data[s]["mics"] for s in sensors], axis=0)
     ts = np.concatenate([data[s]["times"] for s in sensors])
 
     O2, ret = locate_audio(ps, ts, p_guess=None)
     O2, t = O2[:3], O2[3]
-    utils.plot(ax, O2, "b*", markersize=9)
-    utils.plot(ax, (O+O2)/2, "m*", markersize=9)
+    utils.plot(ax, O2, "b*", markersize=9, label="Time delay")
+    utils.plot(ax, (O+O2)/2, "m*", markersize=9, label="Average audio")
 
-    print(O)
-    print(O2)
-    print(np.linalg.norm(O2-O))
+    print("Beam forming:", O)
+    print("Time delay:", O2)
+    print("Distance =", np.linalg.norm(O2-O), "meters")
+    print("Average audio:", (O+O2)/2)
 
-    scatter(ax, triangulate_multiview_many(world_annot, views, calibs), c="r", s=4)
-    scatter(ax, triangulate_multiview_many(event_annot, views, calibs), c="b", s=6)
+    O, n = np.array([0, 0, 0]), np.array([0, 0, 1])
+    plane = triangulate_multiview_many(ground_annot, views, calibs, O=O, n=n)
+    lines = triangulate_multiview_many(ground_annot, views, calibs)
+    dists = np.linalg.norm(plane - lines, axis=1)
+    scatter(ax, plane, c="m", s=4, label="Plane X")
+
+    scatter(ax, triangulate_multiview_many(world_annot, views, calibs), c="r", s=4, label="Lines X")
+    scatter(ax, triangulate_multiview_many(event_annot, views, calibs), c="b", s=6, label="Lines X")
     plot_3d_pose(ax, triangulate_multiview_many(event_annot, views, calibs))
 
-    utils.plot(ax, np.array([[4.6, 2.3, 0], [-4.6, 2.3, 0], [-4.6, -2.3, 0], [4.6, -2.3, 0], [4.6, 2.3, 0]]), "c--")
+    utils.plot(ax, np.array([[4.6, 2.3, 0], [-4.6, 2.3, 0], [-4.6, -2.3, 0],
+                             [4.6, -2.3, 0], [4.6, 2.3, 0]]), "c--", label="Reference")
     axis_equal_3d(ax, zoom=1.2)
+    plt.legend()
     ax.view_init(azim=-120, elev=30)
     plt.savefig(data_path + "reconstruction.png", dpi=200)
 
+    plt.figure("Distances", (12, 9))
+    plt.hist(dists, bins=50)
+    plt.title("Distances between triangulated points (avg = %.2f m)" % np.average(dists))
+    plt.xlabel("Distance, meters")
+    plt.ylabel("Counts")
+    plt.tight_layout()
+
     view_id = 2
+    s, c = views[view_id]
     preview(data, views, world_annot, view_id=view_id, frame_id=event_frame)
 
-    s, c = views[view_id]
+    ps_lines = np.array([project_point(p, calibs[s][c]) for p in lines])
+    ps_plane = np.array([project_point(p, calibs[s][c]) for p in plane])
+    plt.plot(ps_lines[:, 0], ps_lines[:, 1], "bx", label="Reprojected lines X")
+    plt.plot(ps_plane[:, 0], ps_plane[:, 1], "m+", label="Reprojected plane X")
+
     p = project_point(O, calibs[s][c])
     p2 = project_point(O2, calibs[s][c])
     pa = project_point((O+O2)/2, calibs[s][c])
 
-    plt.plot(p[0], p[1], "g*", markersize=9)
-    plt.plot(p2[0], p2[1], "b*", markersize=9)
-    plt.plot(pa[0], pa[1], "m*", markersize=9)
+    plt.plot(p[0], p[1], "g*", markersize=9, label="Beam forming audio")
+    plt.plot(p2[0], p2[1], "b*", markersize=9, label="Time delay audio")
+    plt.plot(pa[0], pa[1], "m*", markersize=9, label="Average audio")
+    plt.legend()
 
     plt.show()
