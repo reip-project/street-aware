@@ -12,11 +12,11 @@ if __name__ == '__main__':
     ground_files = [f for f in files if "polls" not in f and "back" not in f]
     views = [(2, "left"), (1, "left"), (3, "left"), (4, "right"), (2, "right")]
 
-    data = load_data(data_path, frame_ids=[event_frame])
-    world_annot = load_annotations(files, views=views, data=data)
-    ground_annot = load_annotations(ground_files, views=views, data=data)
+    data = load_data(data_path, frame_ids=[event_frame], old=True)
+    world_annot = load_annotations(files, views=views, data=data, old=True)
+    ground_annot = load_annotations(ground_files, views=views, data=data, old=True)
     event_filename = data_path + "event_%d_poses.json" % event_frame
-    event_annot = load_annotations([event_filename], views=views, data=data, all_joints=True)
+    event_annot = load_annotations([event_filename], views=views, data=data, old=True, with_poses=True, all_joints=True)
     event_times = np.array(json.load(open(data_path + "event_11602_times.json")))
     event_times = event_times.T.reshape((-1, 3, 4))  # 4x3 microphones array
 

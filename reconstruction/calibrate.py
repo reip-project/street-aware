@@ -25,14 +25,20 @@ def load_people(filename, frame_ids=None):
         return data
 
 
-def load_data(data_path, data=None, calib_path=None, frame_ids=None):
+def load_data(data_path, data=None, calib_path=None, frame_ids=None, old=False):
     data = data or {s: {c: {} for c in [*cameras, "array"]} for s in sensors}
     print("frame_ids:", frame_ids, "\n")
 
     for s in sensors:
         for c in cameras:
-            data[s][c]["img"] = cv2.imread(data_path + "%d_%s.png" % (s, c))[:, :, ::-1].copy()
-            data[s][c]["people"] = load_people(data_path + "%d_%s_people" % (s, c), frame_ids=frame_ids)
+            if old:
+                filename = data_path + "%d_%s.png" % (s, c)
+            else:
+                filename = data_path + "frames/park_3_sensor_%d_%s.jpg" % (s, c)
+            print(s, c, filename)
+            data[s][c]["img"] = cv2.imread(filename)[:, :, ::-1].copy()
+            if frame_ids is not None:
+                data[s][c]["people"] = load_people(data_path + "%d_%s_people" % (s, c), frame_ids=frame_ids)
 
             if calib_path is not None:
                 calib = json.load(open(calib_path + "%s_%d.json" % (c, s)))
@@ -49,52 +55,56 @@ def load_data(data_path, data=None, calib_path=None, frame_ids=None):
     return data
 
 
-def load_annotations(files, views=None, data=None, all_joints=False):
+def load_annotations(files, views=None, data=None, old=False, with_poses=False, all_joints=False):
     views = views or [(sensor, camera) for sensor in sensors for camera in cameras]
     print("views:", views)
     all_annot = []
 
     for file in files:
         raw = json.load(open(file))
-        frame_id = raw["points"]["frame-number"]
+        frame_id = raw["points"]["frame-number"] if with_poses else 0
 
         # Points
-        for i in range(len(raw["points"]["sensors"][0]["aligned-points"])):
+        if old:
+            n = len(raw["points"]["sensors"][0]["aligned-points"])
+        else:
+            n = len(raw["sensors"][0]["aligned-points"])
+        for i in range(n):
             visibility, annot = [False for _ in views], [None for _ in views]
 
             for j, view in enumerate(views):
-                for view_data in raw["points"]["sensors"]:
+                for view_data in raw["points"]["sensors"] if old else raw["sensors"]:
                     if int(view_data["sensor"][-1]) == view[0] and view_data["side"] == view[1]:
                         annot[j] = view_data["aligned-points"][i]
                         visibility[j] = len(annot[j]) > 0
 
             if False not in visibility:
                 all_annot.append(annot)
+        if with_poses:
+            # Poses
+            joints = [5, 7, 6, 8, 11, 13, 12, 14]  # hips, shoulders, knees, and elbows
+            if all_joints:
+                joints = list(range(len(SKELETON)))
 
-        # Poses
-        joints = [5, 7, 6, 8, 11, 13, 12, 14]  # hips, shoulders, knees, and elbows
-        if all_joints:
-            joints = list(range(len(SKELETON)))
+            for i in range(len(raw["boxes"][0]["aligned-boxes"])):
+                if data is None:
+                    break
+                visibility, annots = [False for _ in views], [[None for _ in views] for _ in range(len(joints))]
 
-        for i in range(len(raw["boxes"][0]["aligned-boxes"])):
-            if data is None:
-                break
-            visibility, annots = [False for _ in views], [[None for _ in views] for _ in range(len(joints))]
+                for j, view in enumerate(views):
+                    for view_data in raw["boxes"]:
+                        if int(view_data["sensor"][-1]) == view[0] and view_data["side"] == view[1]:
+                            pose_id = view_data["box-indices"][i]
+                            if pose_id >= 0:
+                                people = data[view[0]][view[1]]["people"]
+                                poses = people[frame_id]["poses"]
+                                pose = poses[pose_id, ...]
+                                for k, joint in enumerate(joints):
+                                    annots[k][j] = pose[joint, :]
+                                visibility[j] = True
 
-            for j, view in enumerate(views):
-                for view_data in raw["boxes"]:
-                    if int(view_data["sensor"][-1]) == view[0] and view_data["side"] == view[1]:
-                        pose_id = view_data["box-indices"][i]
-                        if pose_id >= 0:
-                            people = data[view[0]][view[1]]["people"]
-                            poses = people[frame_id]["poses"]
-                            pose = poses[pose_id, ...]
-                            for k, joint in enumerate(joints):
-                                annots[k][j] = pose[joint, :]
-                            visibility[j] = True
-
-            if False not in visibility:
-                all_annot.extend(annots)
+                if False not in visibility:
+                    all_annot.extend(annots)
 
     return np.array(all_annot)
 
@@ -102,13 +112,15 @@ def load_annotations(files, views=None, data=None, all_joints=False):
 def preview(data, views, annot, view_id=0, frame_id=11200):
     s, c = views[view_id]
     img = data[s][c]["img"]
-    people = data[s][c]["people"][frame_id]
 
-    if people is not None:
-        poses = people["poses"]
+    if frame_id is not None:
+        people = data[s][c]["people"][frame_id]
 
-        if len(poses.shape) > 1:
-            draw_pose_2d(poses[0, ...], img, small=True)
+        if people is not None:
+            poses = people["poses"]
+
+            if len(poses.shape) > 1:
+                draw_pose_2d(poses[0, ...], img, small=True)
 
     plt.figure("Preview", (12, 9))
     plt.imshow(img)
@@ -125,7 +137,7 @@ def reconstruct_pair(data, files, views, plot=False):
     K1, K2 = data[views[0][0]][views[0][1]]["K"], data[views[1][0]][views[1][1]]["K"]
     img1, img2 = data[views[0][0]][views[0][1]]["img"], data[views[1][0]][views[1][1]]["img"]
 
-    T, R, mask = find_relative(ps1, K1, ps2, K2, thr=1.5, img1=img1, img2=img2, plot=plot, every=5)
+    T, R, mask = find_relative(ps1, K1, ps2, K2, thr=3, img1=img1, img2=img2, plot=plot, every=5)
     p3d = triangulate_relative(ps1, K1, ps2, K2, T, R)
 
     if plot:
@@ -155,48 +167,70 @@ def triangulate_pair(data, annot, views, view_ids, T, R, plot=False):
 
 
 def explore_pair(data, files, side="across"):
-    if side == "chase":
-        views = [(2, "left"), (1, "left")]
-        # views = [(2, "right"), (1, "left")]  # tilt
+    # if side == "chase":
+    #     views = [(2, "left"), (1, "left")]
+    #     # views = [(2, "right"), (1, "left")]  # tilt
+    #
+    # if side == "metro":
+    #     views = [(3, "left"), (4, "right")]
+    #     # views = [(3, "right"), (4, "right")]  # blur
+    #
+    # if side == "across":
+    #     views = [(3, "left"), (1, "left")]
+    #     # views = [(3, "right"), (1, "left")]  # worse
+    #
+    # if side == "across_2":
+    #     views = [(4, "right"), (2, "right")]
+    #     # views = [(4, "right"), (2, "left")]  # worse
 
-    if side == "metro":
-        views = [(3, "left"), (4, "right")]
-        # views = [(3, "right"), (4, "right")]  # blur
+    if side == "school":
+        views = [(2, "right"), (3, "left")]
+
+    if side == "bridge":
+        views = [(1, "right"), (4, "right")]
 
     if side == "across":
-        views = [(3, "left"), (1, "left")]
-        # views = [(3, "right"), (1, "left")]  # worse
+        views = [(2, "right"), (4, "right")]
 
     if side == "across_2":
-        views = [(4, "right"), (2, "right")]
-        # views = [(4, "right"), (2, "left")]  # worse
+        views = [(3, "left"), (4, "right")]
 
     annot = load_annotations(files, views=views, data=data)
     print("annot:", annot.shape)
 
-    preview(data, views, annot, view_id=0, frame_id=11200)
+    preview(data, views, annot, view_id=0, frame_id=None)
 
     reconstruct_pair(data, files, views, plot=True)
 
 
 def calibrate_pair(data, files, side, calib_file, scale_file, plot=False):
-    calib_views = [(2, "left"), (1, "left"), (3, "left"), (4, "right"), (2, "right")]
+    # calib_views = [(2, "left"), (1, "left"), (3, "left"), (4, "right"), (2, "right")]
+    calib_views = [(1, "right"), (2, "right"), (3, "left"), (4, "right")]
     calib_annot = load_annotations([calib_file], views=calib_views, data=data)
     print("calib_annot:", calib_annot.shape)
 
-    if side == "chase":
-        view_ids = [0, 1]
-    if side == "metro":
-        view_ids = [2, 3]
+    # if side == "chase":
+    #     view_ids = [0, 1]
+    # if side == "metro":
+    #     view_ids = [2, 3]
+    # if side == "across":
+    #     view_ids = [2, 1]
+    # if side == "across_2":
+    #     view_ids = [3, 4]
+
+    if side == "school":
+        view_ids = [1, 2]
+    if side == "bridge":
+        view_ids = [0, 3]
     if side == "across":
-        view_ids = [2, 1]
+        view_ids = [1, 3]
     if side == "across_2":
-        view_ids = [3, 4]
+        view_ids = [2, 3]
 
     views = [calib_views[i] for i in view_ids]
 
     if plot:
-        preview(data, calib_views, calib_annot, view_id=view_ids[0], frame_id=11200)
+        preview(data, calib_views, calib_annot, view_id=view_ids[0], frame_id=None)
 
     # Cam2 in Cam1's frame of reference
     T, R = reconstruct_pair(data, files, views, plot=False)
@@ -333,28 +367,33 @@ def load_calibs(filename):
 
 
 if __name__ == '__main__':
-    data_path = './chase_1/'
-    calib_file, scale_file = data_path + "calib_11200.json", data_path + "calib_scale.json"
+    data_path = './park_3/'
+    calib_file, scale_file = data_path + "zebra_park_3_new.json", data_path + "dist_lines_park_3_new.json"
 
     all_files = [file for file in glob.glob(data_path + "*.json") if "poses" in file or "points" in file]
-    frame_ids = sorted(list({json.load(open(file))["points"]["frame-number"] for file in all_files}))
-    frame_ids.extend(list(range(11600, 11621)))  # cache event poses as well
+    # frame_ids = sorted(list({json.load(open(file))["frame-number"] for file in all_files}))
+    # frame_ids.extend(list(range(11600, 11621)))  # cache event poses as well
+    frame_ids = None
 
     data = load_data(data_path, calib_path='./calibration_data/', frame_ids=frame_ids)
 
-    sides, side_id = ["chase", "metro", "across", "across_2"], 2
+    # sides, side_id = ["chase", "metro", "across", "across_2"], 2
+    sides, side_id = ["school", "bridge", "across", "across_2"], 1
 
     # explore_pair(data, all_files, sides[side_id])
     # calibrate_pair(data, all_files, sides[side_id], calib_file, scale_file, plot=True)
+    #
+    # plt.show()
+    # exit(0)
 
     utils.UP_AXIS = "Z"
 
-    # calibs = calibrate_all(data, all_files, sides, calib_file, scale_file)
-    # position_errors(calibs)
+    calibs = calibrate_all(data, all_files, sides, calib_file, scale_file)
+    position_errors(calibs)
 
-    calibs = calibrate_all(data, all_files, ["chase", "metro"], calib_file, scale_file)
-    with open(data_path + "calibration.json", "w") as f:
+    calibs = calibrate_all(data, all_files, ["school", "bridge"], calib_file, scale_file)
+    with open(data_path + "park_3_calibration.json", "w") as f:
         json.dump(calibs, f, indent=4, cls=NumpyEncoder)
-        plt.savefig(data_path + "calibration.png", dpi=200)
+        plt.savefig(data_path + "park_3_calibration.png", dpi=200)
 
     plt.show()
